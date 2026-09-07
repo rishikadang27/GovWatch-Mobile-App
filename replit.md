@@ -1,10 +1,12 @@
-# [Project name]
+# GovWatch Mobile
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+GovWatch is a mobile oversight workspace for Ministry inspectors to monitor care institutions, review CCTV and AI alerts, and complete field inspections.
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/govwatch-mobile run dev` — run the Expo mobile preview
+- `pnpm --filter @workspace/govwatch-mobile run typecheck` — typecheck the mobile app
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -22,15 +24,27 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/govwatch-mobile/app/index.tsx` — Expo Router entry and mobile screen flow
+- `artifacts/govwatch-mobile/src/components/GovWatchUI.tsx` — reusable mobile UI primitives
+- `artifacts/govwatch-mobile/src/context/GovWatchContext.tsx` — local auth, inspection, evidence, and assignment state
+- `artifacts/govwatch-mobile/src/data/mock.ts` — demo institutions, alerts, CCTV feeds, officers, and inspection content
+- `artifacts/govwatch-mobile/src/theme/` — ivory + teal design tokens
+- `artifacts/govwatch-mobile/assets/images/` — generated app icon and institutional reference imagery
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The first release is frontend-only and uses local mock services/state so a real API can replace the data layer later.
+- AsyncStorage keeps demo sign-in state; the field-inspection flow keeps checklist and evidence state in a shared React context.
+- Device location and image selection are requested where available, with explicit mock fallback behavior for Expo web and denied permissions.
+- The custom bottom navigation mirrors the supplied mobile designs instead of using the scaffold's default tab chrome.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Official demo sign-in with role selection, password visibility, persistent sign-in, recovery modal, and validation feedback.
+- Dashboard with searchable mock activity, filters, AI alert previews, weekly progress, and recent inspections.
+- Live CCTV grid and detail view, AI anomaly alerts and detail/response flow, video verification, and simulated call screen.
+- Four-step GPS, checklist, evidence, and report submission workflow with native location/image-picker fallbacks.
+- Institute directory and district assignment flow with officer selection and confirmation feedback.
 
 ## User preferences
 

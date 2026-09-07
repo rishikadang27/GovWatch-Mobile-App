@@ -1,0 +1,25 @@
+export const colors = {
+  ivory: '#F5F7EF',
+  paper: '#FBFCF6',
+  paperDeep: '#EEF4EA',
+  ink: '#124C4D',
+  inkMuted: '#58777A',
+  teal: '#0B746D',
+  tealDeep: '#075A57',
+  tealSoft: '#DDF1EA',
+  tealWash: '#EAF6F0',
+  mint: '#BFE8DA',
+  line: '#D9E7DF',
+  white: '#FFFFFF',
+  success: '#17866F',
+  successSoft: '#DDF4E8',
+  amber: '#D9952B',
+  amberSoft: '#FFF0D2',
+  red: '#D95B5B',
+  redSoft: '#FFE4E2',
+  blue: '#418A9C',
+  blueSoft: '#DDEFF4',
+  shadow: '#0A58502A',
+} as const;
+
+export type ThemeColor = keyof typeof colors;

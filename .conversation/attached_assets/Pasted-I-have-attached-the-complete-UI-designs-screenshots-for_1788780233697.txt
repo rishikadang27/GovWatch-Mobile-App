@@ -1,0 +1,1074 @@
+I have attached the complete UI designs/screenshots for my mobile application called "GovWatch".
+
+I want you to build the COMPLETE WORKING MOBILE FRONTEND based on these screenshots.
+
+The screenshots are the SOURCE OF TRUTH for the design.
+
+Do NOT redesign the UI.
+Do NOT make it look like a generic admin dashboard.
+Do NOT create a desktop website.
+Do NOT simplify the screens.
+
+I want a proper MOBILE APPLICATION that visually matches these screenshots and has working navigation and interactions.
+
+==================================================
+TECH STACK
+==================================================
+
+Use:
+
+- React Native
+- Expo
+- TypeScript
+- React Navigation
+- Expo-compatible libraries
+
+The application must run using Expo.
+
+If the project already exists, inspect the existing project first and work within its structure rather than unnecessarily rebuilding everything.
+
+==================================================
+DESIGN SYSTEM
+==================================================
+
+The entire application uses an:
+
+IVORY + TEAL
+
+visual theme.
+
+Use the screenshots to determine the exact shades.
+
+Main visual characteristics:
+
+- Ivory/off-white backgrounds
+- Deep teal headings
+- Teal primary buttons
+- Light mint/teal surfaces
+- Soft green success states
+- Amber warning states
+- Red critical states
+- Rounded cards
+- Thin subtle borders
+- Soft shadows
+- Large rounded sections
+- Clean modern government/enterprise UI
+- Spacious layouts
+- Strong typography hierarchy
+
+Create a centralized theme:
+
+theme/
+    colors.ts
+    typography.ts
+    spacing.ts
+    theme.ts
+
+Do not scatter colors throughout the application.
+
+==================================================
+IMPORTANT DESIGN RULE
+==================================================
+
+The screenshots should be treated like Figma designs.
+
+For every screen:
+
+- Match layout
+- Match spacing
+- Match typography
+- Match colors
+- Match card sizes
+- Match border radius
+- Match icons
+- Match button styles
+- Match headers
+- Match bottom navigation
+- Match status badges
+- Match visual hierarchy
+
+Do not invent a new design.
+
+==================================================
+APPLICATION STRUCTURE
+==================================================
+
+Create a clean structure such as:
+
+src/
+  components/
+  screens/
+  navigation/
+  data/
+  services/
+  theme/
+  hooks/
+  utils/
+  assets/
+
+Use reusable components.
+
+Examples:
+
+Button
+Card
+Header
+BottomNavigation
+SearchBar
+StatusBadge
+StatCard
+InspectionCard
+AlertCard
+CCTVCard
+ProgressStepper
+PrimaryButton
+SecondaryButton
+IconButton
+Modal
+Checkbox
+Input
+FilterChip
+
+==================================================
+SCREEN 1 — OFFICIAL SIGN-IN
+==================================================
+
+Recreate the provided GovWatch login screen.
+
+The screen contains:
+
+GovWatch
+Ministry of Social Justice & Empowerment
+
+"Transparent oversight for every institution in our care."
+
+Statistics:
+
+4,812 Institutes monitored
+28 States & UTs covered
+99.4% Uptime this quarter
+
+Then:
+
+Official sign-in
+
+Role selection:
+
+- District Officer
+- Field Inspector
+- Ministry Admin
+
+Input:
+
+Official ID / Employee code
+
+Password
+
+Keep me signed in
+
+Forgot password?
+
+Sign in securely
+
+Security/audit message.
+
+FUNCTIONALITY:
+
+Role buttons must work.
+
+Inputs must work.
+
+Password visibility toggle must work.
+
+Keep-me-signed-in checkbox must work.
+
+Forgot password should open a simple frontend recovery screen/modal.
+
+Use mock authentication.
+
+For demo purposes accept:
+
+ID:
+MSJE-DI-20456
+
+Password:
+demo123
+
+After successful login:
+
+Navigate to the Home/Inspector Dashboard.
+
+Show an error for invalid credentials.
+
+==================================================
+SCREEN 2 — HOME / INSPECTOR DASHBOARD
+==================================================
+
+Recreate the provided dashboard.
+
+Top section:
+
+GovWatch
+Ministry of Social Justice & Empowerment
+
+Inspector profile section
+
+Namaste, Inspector
+
+Field Inspector
+
+New Delhi District
+
+Date/time
+
+Notification icon
+
+Profile icon
+
+Search:
+
+"Search Scheme ID or NGO name..."
+
+Filter button.
+
+Filter chips:
+
+All
+Compliance
+Video Verification
+Live CCTV
+Assign Inspection
+
+Statistics:
+
+Pending Inspections
+4
+
+Completed Today
+12
+
+This Week
+8
+
+Overdue Inspections
+2
+
+AI Anomaly Alerts section.
+
+Show alerts such as:
+
+CCTV feed offline for 6+ hours
+Beneficiary headcount mismatch
+Unregistered visitor after hours
+
+Include risk levels:
+
+High Risk
+Medium Risk
+Low Risk
+
+Weekly Inspections section.
+
+Recent Inspections section.
+
+Bottom navigation:
+
+Home
+Inspect
+CCTV
+Institutes
+
+FUNCTIONALITY:
+
+- Search should filter mock data.
+- Filter chips should work.
+- Notification button should open notifications.
+- Recent inspection cards should be clickable.
+- AI anomaly alerts should navigate to AI Alerts.
+- CCTV button navigates to CCTV.
+- Inspect navigates to inspection-related screens.
+- Institutes opens institute list.
+- Bottom navigation must actually work.
+
+==================================================
+SCREEN 3 — LIVE CCTV
+==================================================
+
+Recreate the provided Live CCTV screen.
+
+Header:
+
+Live CCTV
+Real-time feeds across active institutes
+
+Search bar.
+
+Filter tabs:
+
+All Feeds
+Live
+Offline
+AI Flagged
+
+Create CCTV cards containing:
+
+- Image
+- LIVE badge
+- Timestamp
+- Camera name
+- Institute name
+- Status
+- Camera icon
+- Settings icon
+- Expand icon
+
+Example:
+
+Main hall
+Rukmini Shelter Home for Women
+
+Dormitory
+Rukmini Shelter Home for Women
+
+Entrance
+Prakash Old Age Care Centre
+
+Dining hall
+Rukmini Shelter Home for Women
+
+FUNCTIONALITY:
+
+- Search works.
+- Tabs filter feeds.
+- CCTV cards can be tapped.
+- Expand button opens a CCTV detail/full-screen view.
+- Camera/settings buttons should have meaningful frontend interactions.
+- Bottom navigation works.
+
+Use mock images/data.
+
+==================================================
+SCREEN 4 — AI ANOMALY ALERTS
+==================================================
+
+Recreate the provided AI Anomaly Alerts screen.
+
+Header:
+
+AI Anomaly Alerts
+Automatically flagged irregularities
+
+Search.
+
+Filters:
+
+All Alerts
+Critical
+High
+Medium
+
+AI Detection summary:
+
+Total Alerts
+7
+
+Critical
+2
+
+High
+3
+
+Medium
+2
+
+Alert cards containing:
+
+- CCTV image
+- Severity
+- Alert title
+- Institute
+- Description
+- Timestamp
+- AI confidence
+- Confidence progress bar
+- Verify by call
+- Escalate to inspection
+
+Examples:
+
+CCTV feed offline for 6+ hours
+
+Beneficiary headcount mismatch
+
+Unregistered visitor after hours
+
+Staff attendance below sanctioned ratio
+
+Unusual movement detected
+
+FUNCTIONALITY:
+
+Search and filters must work.
+
+Verify by call should open a mock verification/call confirmation.
+
+Escalate to inspection should create/navigate to an inspection flow.
+
+Tapping an alert should open an alert detail screen/modal.
+
+==================================================
+SCREEN 5 — VIDEO VERIFICATION
+==================================================
+
+Recreate the provided Video Verification screen.
+
+Header:
+
+Video Verification
+Live call to confirm your presence
+
+Secure & Verified indicator.
+
+Main card:
+
+Start Random Video Verification
+
+Unscheduled call to verify real-time presence of staff and beneficiaries.
+
+Button:
+
+Initiate Random Video Call
+
+Inspector information.
+
+Institute information.
+
+Verification checklist:
+
+Staff member on duty matches roster
+
+Beneficiaries visible & accounted for
+
+Premises match registered address
+
+No visible safety violations
+
+CCTV cameras operational on-site
+
+FUNCTIONALITY:
+
+Clicking "Initiate Random Video Call" should show a realistic mock video-call screen.
+
+Use mock camera preview.
+
+Include:
+
+Connecting...
+Connected
+End Call
+
+The call does not need a real video backend.
+
+It is a FRONTEND DEMONSTRATION.
+
+Checklist items should be interactive.
+
+==================================================
+SCREEN 6 — FIELD INSPECTION / GPS VERIFICATION
+==================================================
+
+Recreate the first Field Inspection screen.
+
+Header:
+
+Field Inspection
+On-site verification workflow
+
+Secure & Verified
+
+Progress stepper:
+
+1 GPS verification
+2 Checklist
+3 Evidence
+4 Submit report
+
+Institute:
+
+Rukmini Shelter Home for Women
+
+Institute ID:
+MSJE/DL/00231
+
+Inspection ref:
+INS-2026-08841
+
+GPS Verification section.
+
+Show:
+
+Registered Institute Location
+
+28.6139° N, 77.2090° E
+
+Your Current Location
+
+28.6141° N, 77.2088° E
+
+Accuracy:
+±6m
+
+Show a map-style visual.
+
+Location verified.
+
+"You are within 12m of the registered institute address."
+
+FUNCTIONALITY:
+
+Use mock GPS data.
+
+When entering the screen, simulate:
+
+Checking GPS...
+
+Then:
+
+Location verified
+
+Allow "View on Map" to open a map-style modal/screen.
+
+"Go to Checklist" navigates to the Checklist screen.
+
+Back works.
+
+==================================================
+SCREEN 7 — FIELD INSPECTION / CHECKLIST
+==================================================
+
+Recreate the provided checklist screen.
+
+Progress:
+
+Field verification ✓
+Checklist 2
+Evidence 3
+Submit report 4
+
+Institute details.
+
+Location verified.
+
+Inspection checklist.
+
+Checklist items:
+
+Staff member on duty matches roster
+
+Beneficiaries visible & accounted for
+
+Premises match registered address
+
+No visible safety violations
+
+CCTV cameras operational on-site
+
+Staff & records:
+
+Staff present matches sanctioned roster
+
+Attendance register maintained and up to date
+
+Each checklist item must be interactive.
+
+When checked:
+
+- Checkbox becomes checked
+- Completed count increases
+
+Example:
+
+0 / 4 Completed
+
+should become:
+
+1 / 4 Completed
+
+etc.
+
+"Continue to Evidence" should only proceed when appropriate checklist requirements are satisfied.
+
+==================================================
+SCREEN 8 — FIELD INSPECTION / EVIDENCE
+==================================================
+
+Recreate the provided Photo & Video Evidence screen.
+
+Progress:
+
+Field verification ✓
+Checklist ✓
+Evidence 3
+Submit report 4
+
+Photo & Video evidence.
+
+"Minimum 3 photos required."
+
+Buttons:
+
+Add Photo Evidence
+Add Video Clip
+
+Evidence Gallery.
+
+Each evidence item contains:
+
+- Image
+- Geotagged badge
+- Verified badge
+- Title
+- Date/time
+- GPS coordinates
+- More menu
+
+Examples:
+
+Main entrance
+
+Beneficiary area
+
+Records room
+
+FUNCTIONALITY:
+
+Use Expo-compatible image picker/camera functionality if possible.
+
+User should be able to select an image from device.
+
+After selecting an image:
+
+- Add it to evidence gallery
+- Display it
+- Mark it as geotagged using mock GPS
+- Mark it as verified
+
+Video button should allow selecting/recording a video if Expo APIs permit.
+
+For demo purposes, the application can use mock evidence when running without permissions.
+
+"Continue to Report" navigates to the report screen.
+
+==================================================
+SCREEN 9 — FIELD INSPECTION / SUBMIT REPORT
+==================================================
+
+Recreate the provided report submission screen.
+
+Progress:
+
+GPS ✓
+Checklist ✓
+Evidence ✓
+Submit report 4
+
+Institute details.
+
+Location Verified.
+
+Report Summary & Submission.
+
+Verification summary:
+
+GPS location
+Verified
+
+Checklist completed
+0 / 16
+
+Evidence attached
+0 files
+
+Inspection date & time
+
+Inspecting officer
+
+Overall assessment:
+
+Satisfactory
+
+Needs improvement
+
+Critical issues found
+
+Officer remarks text area.
+
+Button:
+
+Submit inspection report
+
+FUNCTIONALITY:
+
+Assessment buttons must be selectable.
+
+Officer remarks must accept text.
+
+Summary values must be derived from the previous inspection steps.
+
+Evidence count must update based on uploaded evidence.
+
+Checklist count must update based on checklist state.
+
+When submitting:
+
+Show loading state:
+
+Submitting inspection...
+
+Then:
+
+Inspection submitted successfully.
+
+Show a success confirmation.
+
+==================================================
+SCREEN 10 — ASSIGN INSPECTIONS
+==================================================
+
+Recreate the provided Assign Inspections screen.
+
+Header:
+
+Assign Inspections
+District-wise inspection workload
+
+Search.
+
+Notification.
+
+Date/time.
+
+Statistics:
+
+154 Pending inspections
+
+42 Assigned this week
+
+28 Overdue > 7 days
+
+19 Field officers active
+
+Institutes requiring inspection.
+
+Table/list containing:
+
+Institute
+District
+Risk Score
+Last Inspection
+Priority
+Assign To
+Action
+
+Examples:
+
+Rukmini Shelter Home for Women
+Dwarka, Delhi
+Risk score 78
+High
+Anjali Kapoor
+
+Nambikkai De-addiction Centre
+Coimbatore, TN
+Risk score 54
+Medium
+
+Nirmal Jyoti Disability Rehab Centre
+Kolkata, WB
+Risk score 83
+High
+
+Snehālaya Child Development Centre
+Bengaluru, Karnataka
+Risk score 46
+Medium
+
+FUNCTIONALITY:
+
+Search works.
+
+Officer dropdown works.
+
+Assign button works.
+
+When assigning:
+
+Show confirmation.
+
+Update the assigned officer.
+
+"View all institutes" navigates to the Institutes screen.
+
+==================================================
+NAVIGATION
+==================================================
+
+Implement actual navigation between the screens.
+
+Main bottom navigation:
+
+HOME
+INSPECT
+CCTV
+INSTITUTES
+
+Suggested flow:
+
+LOGIN
+ ↓
+HOME
+
+HOME
+ ├── AI ALERTS
+ ├── CCTV
+ ├── INSPECTION
+ ├── NOTIFICATIONS
+ └── INSTITUTES
+
+INSPECTION FLOW:
+
+Assign Inspection
+       ↓
+GPS Verification
+       ↓
+Checklist
+       ↓
+Evidence
+       ↓
+Submit Report
+       ↓
+Success
+
+AI ALERT FLOW:
+
+AI Alert
+ ↓
+Alert Detail
+ ↓
+Verify by Call
+ OR
+Escalate to Inspection
+
+VIDEO VERIFICATION:
+
+Video Verification
+ ↓
+Initiate Random Call
+ ↓
+Mock Video Call
+ ↓
+Verification Result
+
+==================================================
+MOCK DATA
+==================================================
+
+There is NO backend yet.
+
+Do not build a real backend.
+
+Create mock data and services.
+
+Example:
+
+src/data/institutions.ts
+src/data/inspections.ts
+src/data/alerts.ts
+src/data/cctv.ts
+src/data/officers.ts
+src/data/notifications.ts
+
+Create service functions such as:
+
+getInstitutions()
+getInspections()
+getAlerts()
+getCCTVFeeds()
+assignInspection()
+submitInspection()
+analyzeImage()
+startVideoVerification()
+
+Use async functions with mock delays where useful.
+
+Keep service architecture clean so a real API can replace the mock implementation later.
+
+==================================================
+REAL DEVICE FEATURES
+==================================================
+
+Where possible use Expo APIs for:
+
+- Camera
+- Image picker
+- Location
+- Notifications
+
+But the app must still work as a demonstration if permissions are unavailable.
+
+Therefore provide fallback/mock behavior.
+
+==================================================
+BOTTOM NAVIGATION
+==================================================
+
+The bottom navigation is extremely important.
+
+Match the screenshots.
+
+Items:
+
+Home
+Inspect
+CCTV
+Institutes
+
+Show:
+
+- icon
+- label
+- selected state
+- teal active indicator
+
+The active tab should change based on the current screen.
+
+==================================================
+RESPONSIVE MOBILE UI
+==================================================
+
+This is a MOBILE application.
+
+Optimize for:
+
+- iPhone
+- Android phones
+- different screen heights
+- different screen widths
+
+Use:
+
+SafeAreaView
+
+ScrollView
+
+FlatList
+
+Flexbox
+
+responsive dimensions
+
+Do not hardcode the entire UI to one screen resolution.
+
+==================================================
+INTERACTION QUALITY
+==================================================
+
+Every obvious interactive element should actually work.
+
+Do not create dead buttons.
+
+For every button ask:
+
+"What should happen when the user taps this?"
+
+Then implement that behavior.
+
+Examples:
+
+Search → filters
+
+Filter → changes displayed data
+
+Card → opens details
+
+Back → returns previous screen
+
+Checkbox → updates state
+
+Upload → opens image picker
+
+Submit → shows submission flow
+
+Assign → updates assignment
+
+Verify → opens verification
+
+Escalate → creates inspection flow
+
+==================================================
+IMPORTANT: DO NOT OVERBUILD
+==================================================
+
+This is currently a FRONTEND DEMONSTRATION.
+
+Do NOT spend time building:
+
+- production database
+- authentication server
+- real AI model
+- real CCTV infrastructure
+- real government API
+- real video calling backend
+
+Use realistic mock implementations.
+
+The frontend architecture should, however, be ready for those systems to be connected later.
+
+==================================================
+FINAL TESTING
+==================================================
+
+After building:
+
+1. Start the Expo application.
+2. Check every screen.
+3. Check every navigation route.
+4. Check all buttons.
+5. Check bottom navigation.
+6. Check search.
+7. Check filters.
+8. Check checkboxes.
+9. Check image selection.
+10. Check mock GPS.
+11. Check inspection progress.
+12. Check report submission.
+13. Check assignment functionality.
+14. Check video verification flow.
+15. Fix all errors.
+
+Do not stop after creating the first screen.
+
+I want the COMPLETE WORKING FRONTEND.
+
+==================================================
+FINAL OUTPUT
+==================================================
+
+After implementation, tell me:
+
+1. How to install dependencies.
+2. How to run the app.
+3. Main folder structure.
+4. List of screens created.
+5. Navigation flow.
+6. Mock data files.
+7. Where the real backend/API can later be connected.
+8. Any Expo permissions I need to enable.
+
+MOST IMPORTANT:
+
+The attached screenshots are the visual source of truth.
+
+Build the application to LOOK LIKE THE SCREENSHOTS and BEHAVE LIKE A REAL MOBILE APP.
+
+Do not replace the ivory + teal design with another color scheme.

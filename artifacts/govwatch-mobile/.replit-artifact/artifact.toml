@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/govwatch-mobile/"
+title = "GovWatch Mobile"
+description = "A mobile oversight companion for Ministry inspectors to monitor institutions, review CCTV, resolve AI alerts, and complete field inspections."
+version = "1.0.0"
+id = "artifacts/govwatch-mobile"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/govwatch-mobile/" ]
+localPort = 23843
+
+[services.development]
+run = "pnpm --filter @workspace/govwatch-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/govwatch-mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/govwatch-mobile", "run", "serve" ]
+
+[services.env]
+PORT = "23843"
+BASE_PATH = "/govwatch-mobile/"
