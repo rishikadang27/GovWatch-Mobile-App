@@ -44,7 +44,11 @@ import {
   type Risk,
 } from '@/src/data/mock';
 
-import { GovWatchProvider, useGovWatch } from '@/src/context/GovWatchContext';
+import {
+  GovWatchProvider,
+  useGovWatch,
+} from '@/src/context/GovWatchContext';
+
 import { colors } from '@/src/theme/colors';
 import { radii, spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
@@ -64,12 +68,89 @@ type Screen =
   | 'report'
   | 'assignment'
   | 'institutes'
+  | 'compliance'
   | 'notifications';
 
 type NavTab = 'home' | 'inspect' | 'cctv' | 'institutes';
 
 const REGISTERED_LATITUDE = 28.6139;
 const REGISTERED_LONGITUDE = 77.2090;
+
+/* Distance within which the institute is considered verified. */
+const GPS_ALLOWED_RADIUS_METERS = 100;
+
+function calculateDistanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+) {
+  const earthRadius = 6371000;
+
+  const toRadians = (value: number) =>
+    (value * Math.PI) / 180;
+
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) ** 2;
+
+  return (
+    2 *
+    earthRadius *
+    Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  );
+}
+
+function getMapRegion(
+  currentLocation: Location.LocationObjectCoords | null,
+) {
+  if (!currentLocation) {
+    return {
+      latitude: REGISTERED_LATITUDE,
+      longitude: REGISTERED_LONGITUDE,
+      latitudeDelta: 0.006,
+      longitudeDelta: 0.006,
+    };
+  }
+
+  const minLat = Math.min(
+    REGISTERED_LATITUDE,
+    currentLocation.latitude,
+  );
+
+  const maxLat = Math.max(
+    REGISTERED_LATITUDE,
+    currentLocation.latitude,
+  );
+
+  const minLon = Math.min(
+    REGISTERED_LONGITUDE,
+    currentLocation.longitude,
+  );
+
+  const maxLon = Math.max(
+    REGISTERED_LONGITUDE,
+    currentLocation.longitude,
+  );
+
+  return {
+    latitude: (minLat + maxLat) / 2,
+    longitude: (minLon + maxLon) / 2,
+    latitudeDelta: Math.max(
+      (maxLat - minLat) * 1.8,
+      0.006,
+    ),
+    longitudeDelta: Math.max(
+      (maxLon - minLon) * 1.8,
+      0.006,
+    ),
+  };
+}
 
 function GovWatchApp() {
   const insets = useSafeAreaInsets();
@@ -89,8 +170,12 @@ function GovWatchApp() {
     setSubmitted,
   } = useGovWatch();
 
-  const [screen, setScreen] = useState<Screen>(isSignedIn ? 'home' : 'login');
-  const [previousScreen, setPreviousScreen] = useState<Screen>('home');
+  const [screen, setScreen] = useState<Screen>(
+    isSignedIn ? 'home' : 'login',
+  );
+
+  const [previousScreen, setPreviousScreen] =
+    useState<Screen>('home');
 
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
@@ -105,18 +190,30 @@ function GovWatchApp() {
   >('Field Inspector');
 
   const [search, setSearch] = useState('');
-  const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(null);
-  const [selectedFeed, setSelectedFeed] = useState<Feed | null>(null);
+  const [selectedAlert, setSelectedAlert] =
+    useState<AlertItem | null>(null);
+
+  const [selectedFeed, setSelectedFeed] =
+    useState<Feed | null>(null);
+
   const [toast, setToast] = useState('');
 
   const [callState, setCallState] = useState<
     'idle' | 'connecting' | 'connected' | 'ended'
   >('idle');
 
-  const [gpsState, setGpsState] = useState<'checking' | 'verified'>('checking');
+  const [callReturnScreen, setCallReturnScreen] =
+    useState<Screen>('video');
+
+  const [gpsState, setGpsState] = useState<
+    'checking' | 'verified' | 'failed'
+  >('checking');
 
   const [currentLocation, setCurrentLocation] =
     useState<Location.LocationObjectCoords | null>(null);
+
+  const [gpsDistance, setGpsDistance] =
+    useState<number | null>(null);
 
   const [assessment, setAssessment] = useState<
     'Satisfactory' | 'Needs improvement' | 'Critical issues found'
@@ -124,41 +221,68 @@ function GovWatchApp() {
 
   const [remarks, setRemarks] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  const [notificationsOpen, setNotificationsOpen] =
+    useState(false);
+
   const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
     if (screen === 'gps') {
       setGpsState('checking');
       setCurrentLocation(null);
+      setGpsDistance(null);
 
       let mounted = true;
 
       const verify = async () => {
         try {
-          if (Platform.OS !== 'web') {
-            const permission =
-              await Location.requestForegroundPermissionsAsync();
-
-            if (permission.status === 'granted') {
-              const location = await Location.getCurrentPositionAsync({
-                accuracy: Location.Accuracy.High,
-              });
-
-              if (mounted) {
-                setCurrentLocation(location.coords);
-              }
+          if (Platform.OS === 'web') {
+            if (mounted) {
+              setGpsState('failed');
             }
+            return;
           }
-        } catch {
-          /* demo fallback remains available */
-        }
 
-        setTimeout(() => {
-          if (mounted) {
-            setGpsState('verified');
+          const permission =
+            await Location.requestForegroundPermissionsAsync();
+
+          if (permission.status !== 'granted') {
+            if (mounted) {
+              setGpsState('failed');
+            }
+            return;
           }
-        }, 900);
+
+          const location =
+            await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.High,
+            });
+
+          if (!mounted) return;
+
+          setCurrentLocation(location.coords);
+
+          const distance =
+            calculateDistanceMeters(
+              REGISTERED_LATITUDE,
+              REGISTERED_LONGITUDE,
+              location.coords.latitude,
+              location.coords.longitude,
+            );
+
+          setGpsDistance(distance);
+
+          setGpsState(
+            distance <= GPS_ALLOWED_RADIUS_METERS
+              ? 'verified'
+              : 'failed',
+          );
+        } catch {
+          if (mounted) {
+            setGpsState('failed');
+          }
+        }
       };
 
       void verify();
@@ -188,7 +312,8 @@ function GovWatchApp() {
   const activeTab: NavTab =
     screen === 'cctv' || screen === 'cctvDetail'
       ? 'cctv'
-      : screen === 'institutes' || screen === 'assignment'
+      : screen === 'institutes' ||
+          screen === 'assignment'
         ? 'institutes'
         : screen === 'gps' ||
             screen === 'checklist' ||
@@ -204,6 +329,7 @@ function GovWatchApp() {
     'cctv',
     'institutes',
     'assignment',
+    'compliance',
     'gps',
     'checklist',
     'evidence',
@@ -213,7 +339,11 @@ function GovWatchApp() {
   ].includes(screen);
 
   const goBack = () =>
-    setScreen(previousScreen === screen ? 'home' : previousScreen);
+    setScreen(
+      previousScreen === screen
+        ? 'home'
+        : previousScreen,
+    );
 
   const handleLogin = () => {
     if (selectedRole !== 'Field Inspector') {
@@ -244,7 +374,8 @@ function GovWatchApp() {
     if (tab === 'institutes') setScreen('institutes');
   };
 
-  const showToast = (message: string) => setToast(message);
+  const showToast = (message: string) =>
+    setToast(message);
 
   if (screen === 'login') {
     return (
@@ -284,8 +415,12 @@ function GovWatchApp() {
             search={search}
             setSearch={setSearch}
             onNavigate={navigate}
-            onNotify={() => setNotificationsOpen(true)}
-            onProfile={() => setProfileOpen(true)}
+            onNotify={() =>
+              setNotificationsOpen(true)
+            }
+            onProfile={() =>
+              setProfileOpen(true)
+            }
           />
         );
 
@@ -299,6 +434,14 @@ function GovWatchApp() {
               setSelectedAlert(item);
               navigate('alertDetail');
             }}
+            onCall={() => {
+              setCallReturnScreen('alerts');
+              setCallState('connecting');
+              navigate('call');
+            }}
+            onEscalate={() =>
+              navigate('compliance')
+            }
             onToast={showToast}
           />
         );
@@ -309,10 +452,13 @@ function GovWatchApp() {
             item={selectedAlert ?? alerts[0]}
             onBack={goBack}
             onVerify={() => {
+              setCallReturnScreen('alertDetail');
               setCallState('connecting');
               navigate('call');
             }}
-            onEscalate={() => navigate('gps')}
+            onEscalate={() =>
+              navigate('compliance')
+            }
           />
         );
 
@@ -343,6 +489,7 @@ function GovWatchApp() {
           <VideoVerificationScreen
             onBack={goBack}
             onCall={() => {
+              setCallReturnScreen('video');
               setCallState('connecting');
               navigate('call');
             }}
@@ -355,7 +502,9 @@ function GovWatchApp() {
           <CallScreen
             state={callState}
             setState={setCallState}
-            onBack={() => setScreen('video')}
+            onBack={() =>
+              setScreen(callReturnScreen)
+            }
           />
         );
 
@@ -364,9 +513,14 @@ function GovWatchApp() {
           <GpsScreen
             gpsState={gpsState}
             currentLocation={currentLocation}
+            gpsDistance={gpsDistance}
             onBack={goBack}
             onNext={() => navigate('checklist')}
-            onMap={() => showToast('Map is centered on your GPS location')}
+            onMap={() =>
+              showToast(
+                'Map is centered on the registered institute and your GPS location',
+              )
+            }
           />
         );
 
@@ -389,21 +543,30 @@ function GovWatchApp() {
             onAdd={async (kind) => {
               if (kind === 'photo') {
                 try {
-                  const result = await ImagePicker.launchImageLibraryAsync({
-                    mediaTypes: ['images'],
-                    allowsEditing: true,
-                    quality: 0.8,
-                  });
+                  const result =
+                    await ImagePicker.launchImageLibraryAsync(
+                      {
+                        mediaTypes: ['images'],
+                        allowsEditing: true,
+                        quality: 0.8,
+                      },
+                    );
 
-                  if (!result.canceled && result.assets[0]) {
-                    const evidenceCoords = currentLocation
-                      ? `${currentLocation.latitude.toFixed(4)}° N, ${currentLocation.longitude.toFixed(4)}° E`
-                      : '28.6141° N, 77.2088° E';
+                  if (
+                    !result.canceled &&
+                    result.assets[0]
+                  ) {
+                    const evidenceCoords =
+                      currentLocation
+                        ? `${currentLocation.latitude.toFixed(4)}° N, ${currentLocation.longitude.toFixed(4)}° E`
+                        : '28.6141° N, 77.2088° E';
 
                     addEvidence({
                       id: `upload-${Date.now()}`,
                       title: 'New photo evidence',
-                      image: { uri: result.assets[0].uri },
+                      image: {
+                        uri: result.assets[0].uri,
+                      },
                       time: 'Now',
                       coords: evidenceCoords,
                     });
@@ -418,7 +581,9 @@ function GovWatchApp() {
                   );
                 }
               } else {
-                showToast('Video capture ready in the native build');
+                showToast(
+                  'Video capture ready in the native build',
+                );
               }
             }}
             onNext={() => navigate('report')}
@@ -439,7 +604,11 @@ function GovWatchApp() {
             onBack={goBack}
             onSubmit={async () => {
               setSubmitting(true);
-              await new Promise((resolve) => setTimeout(resolve, 1000));
+
+              await new Promise((resolve) =>
+                setTimeout(resolve, 1000),
+              );
+
               setSubmitting(false);
               setSubmitted(true);
             }}
@@ -459,9 +628,13 @@ function GovWatchApp() {
             onBack={goBack}
             onAssign={(id, officer) => {
               assignInstitute(id, officer);
-              showToast(`Inspection assigned to ${officer}`);
+              showToast(
+                `Inspection assigned to ${officer}`,
+              );
             }}
-            onViewAll={() => navigate('institutes')}
+            onViewAll={() =>
+              navigate('institutes')
+            }
           />
         );
 
@@ -476,8 +649,26 @@ function GovWatchApp() {
           />
         );
 
+      case 'compliance':
+        return (
+          <ComplianceScreen
+            onBack={goBack}
+            onStartInspection={() =>
+              navigate('gps')
+            }
+            onOpenAlerts={() =>
+              navigate('alerts')
+            }
+            onToast={showToast}
+          />
+        );
+
       case 'notifications':
-        return <NotificationsScreen onBack={goBack} />;
+        return (
+          <NotificationsScreen
+            onBack={goBack}
+          />
+        );
 
       default:
         return null;
@@ -486,10 +677,15 @@ function GovWatchApp() {
 
   return (
     <View style={styles.appShell}>
-      <View style={{ flex: 1 }}>{renderScreen()}</View>
+      <View style={{ flex: 1 }}>
+        {renderScreen()}
+      </View>
 
       {bottomTabs && (
-        <BottomNav active={activeTab} onNavigate={handleNav} />
+        <BottomNav
+          active={activeTab}
+          onNavigate={handleNav}
+        />
       )}
 
       {Boolean(toast) && (
@@ -497,7 +693,9 @@ function GovWatchApp() {
           style={[
             styles.toast,
             {
-              bottom: bottomTabs ? 100 : 30 + insets.bottom,
+              bottom: bottomTabs
+                ? 100
+                : 30 + insets.bottom,
             },
           ]}
         >
@@ -506,13 +704,18 @@ function GovWatchApp() {
             color={colors.white}
             size={18}
           />
-          <Text style={styles.toastText}>{toast}</Text>
+
+          <Text style={styles.toastText}>
+            {toast}
+          </Text>
         </View>
       )}
 
       <SimpleModal
         visible={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
+        onClose={() =>
+          setNotificationsOpen(false)
+        }
         title="Notifications"
       >
         <View style={styles.notificationRow}>
@@ -528,6 +731,7 @@ function GovWatchApp() {
             <Text style={styles.notificationTitle}>
               2 critical AI alerts need review
             </Text>
+
             <Text style={styles.notificationMeta}>
               Updated 8 minutes ago
             </Text>
@@ -546,7 +750,9 @@ function GovWatchApp() {
 
       <SimpleModal
         visible={profileOpen}
-        onClose={() => setProfileOpen(false)}
+        onClose={() =>
+          setProfileOpen(false)
+        }
         title="Field Inspector Account"
       >
         <View style={styles.profileHeader}>
@@ -558,7 +764,10 @@ function GovWatchApp() {
           </View>
 
           <View style={{ flex: 1 }}>
-            <Text style={styles.profileName}>Field Inspector</Text>
+            <Text style={styles.profileName}>
+              Field Inspector
+            </Text>
+
             <Text style={styles.profileMeta}>
               MSJE-DI-20456 · New Delhi District
             </Text>
@@ -567,11 +776,13 @@ function GovWatchApp() {
 
         <View style={styles.profileDivider} />
 
-        <Text style={styles.profileSectionTitle}>Session</Text>
+        <Text style={styles.profileSectionTitle}>
+          Session
+        </Text>
 
         <Text style={styles.profileBody}>
-          You are signed in as a Field Inspector. Sign out here to return
-          to the secure login screen.
+          You are signed in as a Field Inspector. Sign out
+          here to return to the secure login screen.
         </Text>
 
         <SecondaryButton
@@ -629,7 +840,10 @@ function LoginScreen({
     | 'Field Inspector'
     | 'Ministry Admin';
   setSelectedRole: (
-    value: 'District Officer' | 'Field Inspector' | 'Ministry Admin',
+    value:
+      | 'District Officer'
+      | 'Field Inspector'
+      | 'Ministry Admin',
   ) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -637,12 +851,18 @@ function LoginScreen({
   return (
     <KeyboardAvoidingView
       style={styles.loginShell}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={
+        Platform.OS === 'ios'
+          ? 'padding'
+          : undefined
+      }
     >
       <ScrollView
         contentContainerStyle={{
-          paddingTop: insets.top + spacing.xl,
-          paddingBottom: spacing.section,
+          paddingTop:
+            insets.top + spacing.xl,
+          paddingBottom:
+            spacing.section,
         }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -657,7 +877,10 @@ function LoginScreen({
           </View>
 
           <View>
-            <Text style={styles.loginBrandTitle}>GovWatch</Text>
+            <Text style={styles.loginBrandTitle}>
+              GovWatch
+            </Text>
+
             <Text style={styles.loginBrandSub}>
               Ministry of Social Justice & Empowerment
             </Text>
@@ -671,7 +894,8 @@ function LoginScreen({
         </Text>
 
         <Text style={styles.loginIntro}>
-          A secure workspace for the officers who keep care accountable.
+          A secure workspace for the officers who keep
+          care accountable.
         </Text>
 
         <View style={styles.loginStats}>
@@ -680,21 +904,34 @@ function LoginScreen({
             ['28', 'States & UTs covered'],
             ['99.4%', 'Uptime this quarter'],
           ].map(([value, label]) => (
-            <View key={label} style={styles.loginStat}>
-              <Text style={styles.loginStatValue}>{value}</Text>
-              <Text style={styles.loginStatLabel}>{label}</Text>
+            <View
+              key={label}
+              style={styles.loginStat}
+            >
+              <Text style={styles.loginStatValue}>
+                {value}
+              </Text>
+
+              <Text style={styles.loginStatLabel}>
+                {label}
+              </Text>
             </View>
           ))}
         </View>
 
         <Surface style={styles.loginCard}>
-          <Text style={styles.loginTitle}>Official sign-in</Text>
-
-          <Text style={styles.loginSubtitle}>
-            Use your authorised Ministry credentials to continue.
+          <Text style={styles.loginTitle}>
+            Official sign-in
           </Text>
 
-          <Text style={styles.roleLabel}>Sign in as</Text>
+          <Text style={styles.loginSubtitle}>
+            Use your authorised Ministry credentials to
+            continue.
+          </Text>
+
+          <Text style={styles.roleLabel}>
+            Sign in as
+          </Text>
 
           <View style={styles.roleRow}>
             {(
@@ -704,33 +941,43 @@ function LoginScreen({
                 'Ministry Admin',
               ] as const
             ).map((role) => {
-              const active = selectedRole === role;
+              const active =
+                selectedRole === role;
 
               return (
                 <Pressable
                   key={role}
-                  onPress={() => setSelectedRole(role)}
+                  onPress={() =>
+                    setSelectedRole(role)
+                  }
                   style={[
                     styles.roleButton,
-                    active && styles.roleButtonActive,
+                    active &&
+                      styles.roleButtonActive,
                   ]}
                 >
                   <Icon
                     name={
                       role === 'District Officer'
                         ? 'map-marker-radius-outline'
-                        : role === 'Field Inspector'
+                        : role ===
+                            'Field Inspector'
                           ? 'clipboard-account-outline'
                           : 'shield-account-outline'
                     }
                     size={18}
-                    color={active ? colors.white : colors.teal}
+                    color={
+                      active
+                        ? colors.white
+                        : colors.teal
+                    }
                   />
 
                   <Text
                     style={[
                       styles.roleText,
-                      active && styles.roleTextActive,
+                      active &&
+                        styles.roleTextActive,
                     ]}
                   >
                     {role}
@@ -755,7 +1002,9 @@ function LoginScreen({
             secureTextEntry={!showPassword}
             right={
               <Pressable
-                onPress={() => setShowPassword(!showPassword)}
+                onPress={() =>
+                  setShowPassword(!showPassword)
+                }
               >
                 <Icon
                   name={
@@ -777,19 +1026,27 @@ function LoginScreen({
                 color={colors.red}
                 size={18}
               />
-              <Text style={styles.errorText}>{loginError}</Text>
+
+              <Text style={styles.errorText}>
+                {loginError}
+              </Text>
             </View>
           )}
 
           <View style={styles.loginOptions}>
             <Pressable
-              onPress={() => setKeepSignedIn(!keepSignedIn)}
+              onPress={() =>
+                setKeepSignedIn(
+                  !keepSignedIn,
+                )
+              }
               style={styles.checkLine}
             >
               <View
                 style={[
                   styles.checkbox,
-                  keepSignedIn && styles.checkboxChecked,
+                  keepSignedIn &&
+                    styles.checkboxChecked,
                 ]}
               >
                 {keepSignedIn && (
@@ -811,7 +1068,9 @@ function LoginScreen({
 
             <Pressable
               hitSlop={10}
-              onPress={() => setForgotOpen(true)}
+              onPress={() =>
+                setForgotOpen(true)
+              }
               style={styles.forgotButton}
             >
               <Text
@@ -835,9 +1094,10 @@ function LoginScreen({
               color={colors.teal}
               size={18}
             />
+
             <Text style={styles.auditText}>
-              Protected by Ministry security controls. Your activity is
-              logged for audit.
+              Protected by Ministry security controls.
+              Your activity is logged for audit.
             </Text>
           </View>
         </Surface>
@@ -849,12 +1109,15 @@ function LoginScreen({
 
       <SimpleModal
         visible={forgotOpen}
-        onClose={() => setForgotOpen(false)}
+        onClose={() =>
+          setForgotOpen(false)
+        }
         title="Recover official access"
       >
         <Text style={styles.modalBody}>
-          Enter your official ID and the access recovery team will contact
-          your registered department email.
+          Enter your official ID and the access recovery
+          team will contact your registered department
+          email.
         </Text>
 
         <Field
@@ -868,7 +1131,9 @@ function LoginScreen({
           label="Request recovery"
           onPress={onRequestRecovery}
           disabled={!recoveryId.trim()}
-          style={{ marginTop: spacing.lg }}
+          style={{
+            marginTop: spacing.lg,
+          }}
         />
       </SimpleModal>
     </KeyboardAvoidingView>
@@ -893,16 +1158,31 @@ function HomeScreen({
   const filteredAlerts = alerts
     .filter(
       (item) =>
-        item.title.toLowerCase().includes(search.toLowerCase()) ||
-        item.institute.toLowerCase().includes(search.toLowerCase()),
+        item.title
+          .toLowerCase()
+          .includes(
+            search.toLowerCase(),
+          ) ||
+        item.institute
+          .toLowerCase()
+          .includes(
+            search.toLowerCase(),
+          ),
     )
     .filter(
       (item) =>
         filter === 'All' ||
-        (filter === 'Compliance' ? item.severity !== 'Medium' : true) ||
-        (filter === 'Video Verification' &&
-          item.title.includes('headcount')) ||
-        (filter === 'Live CCTV' && item.title.includes('CCTV')),
+        (filter === 'Compliance'
+          ? item.severity !== 'Medium'
+          : filter === 'Video Verification'
+            ? item.title.includes(
+                'headcount',
+              )
+            : filter === 'Live CCTV'
+              ? item.title.includes(
+                  'CCTV',
+                )
+              : true),
     );
 
   return (
@@ -920,6 +1200,7 @@ function HomeScreen({
                 color={colors.ink}
                 size={21}
               />
+
               <View style={styles.alertDot} />
             </Pressable>
 
@@ -938,12 +1219,17 @@ function HomeScreen({
       />
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={
+          styles.scrollContent
+        }
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.greetingRow}>
           <View>
-            <Text style={styles.greeting}>Namaste, Inspector</Text>
+            <Text style={styles.greeting}>
+              Namaste, Inspector
+            </Text>
+
             <Text style={styles.greetingMeta}>
               Field Inspector · New Delhi District
             </Text>
@@ -958,13 +1244,17 @@ function HomeScreen({
           value={search}
           onChangeText={setSearch}
           placeholder="Search Scheme ID or NGO name..."
-          onFilter={() => onNavigate('assignment')}
+          onFilter={() =>
+            onNavigate('assignment')
+          }
         />
 
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipRow}
+          contentContainerStyle={
+            styles.chipRow
+          }
         >
           {[
             'All',
@@ -980,11 +1270,14 @@ function HomeScreen({
               onPress={() =>
                 item === 'Assign Inspection'
                   ? onNavigate('assignment')
-                  : item === 'Video Verification'
-                    ? onNavigate('video')
-                    : item === 'Live CCTV'
-                      ? onNavigate('cctv')
-                      : setFilter(item)
+                  : item === 'Compliance'
+                    ? onNavigate('compliance')
+                    : item ===
+                        'Video Verification'
+                      ? onNavigate('video')
+                      : item === 'Live CCTV'
+                        ? onNavigate('cctv')
+                        : setFilter(item)
               }
             />
           ))}
@@ -1024,84 +1317,143 @@ function HomeScreen({
             <Text style={styles.sectionTitle}>
               AI anomaly alerts
             </Text>
+
             <Text style={styles.sectionSubtitle}>
               Priority items that need your attention
             </Text>
           </View>
 
-          <Pressable onPress={() => onNavigate('alerts')}>
-            <Text style={styles.seeAll}>See all</Text>
+          <Pressable
+            onPress={() =>
+              onNavigate('alerts')
+            }
+          >
+            <Text style={styles.seeAll}>
+              See all
+            </Text>
           </Pressable>
         </View>
 
-        {filteredAlerts.slice(0, 3).map((item) => (
-          <Pressable
-            key={item.id}
-            onPress={() => onNavigate('alertDetail')}
-            style={styles.alertPreview}
-          >
-            <ImageThumb
-              source={item.image}
-              style={styles.alertPreviewImage}
-            />
-
-            <View style={styles.alertPreviewBody}>
-              <StatusBadge
-                label={item.severity}
-                tone={
-                  item.severity === 'Critical'
-                    ? 'critical'
-                    : item.severity === 'High'
-                      ? 'warning'
-                      : 'info'
+        {filteredAlerts
+          .slice(0, 3)
+          .map((item) => (
+            <Pressable
+              key={item.id}
+              onPress={() =>
+                onNavigate(
+                  'alertDetail',
+                )
+              }
+              style={
+                styles.alertPreview
+              }
+            >
+              <ImageThumb
+                source={item.image}
+                style={
+                  styles.alertPreviewImage
                 }
               />
 
-              <Text style={styles.alertPreviewTitle}>
-                {item.title}
-              </Text>
+              <View
+                style={
+                  styles.alertPreviewBody
+                }
+              >
+                <StatusBadge
+                  label={item.severity}
+                  tone={
+                    item.severity ===
+                    'Critical'
+                      ? 'critical'
+                      : item.severity ===
+                          'High'
+                        ? 'warning'
+                        : 'info'
+                  }
+                />
 
-              <Text style={styles.alertPreviewMeta}>
-                {item.institute}
-              </Text>
-            </View>
+                <Text
+                  style={
+                    styles.alertPreviewTitle
+                  }
+                >
+                  {item.title}
+                </Text>
 
-            <Icon
-              name="chevron-right"
-              color={colors.teal}
-              size={21}
-            />
-          </Pressable>
-        ))}
+                <Text
+                  style={
+                    styles.alertPreviewMeta
+                  }
+                >
+                  {item.institute}
+                </Text>
+              </View>
+
+              <Icon
+                name="chevron-right"
+                color={colors.teal}
+                size={21}
+              />
+            </Pressable>
+          ))}
 
         <View style={styles.sectionHeading}>
           <View>
             <Text style={styles.sectionTitle}>
               Weekly inspections
             </Text>
+
             <Text style={styles.sectionSubtitle}>
               Your field activity at a glance
             </Text>
           </View>
 
-          <Text style={styles.weeklyPercent}>78%</Text>
+          <Text style={styles.weeklyPercent}>
+            78%
+          </Text>
         </View>
 
-        <Surface style={styles.weeklyCard}>
+        <Surface
+          style={styles.weeklyCard}
+        >
           <View style={styles.weeklyTop}>
             <View>
-              <Text style={styles.weeklyValue}>8 of 10</Text>
-              <Text style={styles.weeklyLabel}>
+              <Text
+                style={
+                  styles.weeklyValue
+                }
+              >
+                8 of 10
+              </Text>
+
+              <Text
+                style={
+                  styles.weeklyLabel
+                }
+              >
                 inspections completed
               </Text>
             </View>
 
-            <View style={styles.weeklyRing}>
-              <Text style={styles.weeklyRingText}>80</Text>
+            <View
+              style={styles.weeklyRing}
+            >
+              <Text
+                style={
+                  styles.weeklyRingText
+                }
+              >
+                80
+              </Text>
             </View>
           </View>
 
-          <View style={styles.progressTrack}>
+          <View
+            style={
+              styles.progressTrack
+            }
+          >
             <View
               style={[
                 styles.progressFill,
@@ -1111,7 +1463,8 @@ function HomeScreen({
           </View>
 
           <Text style={styles.weeklyFoot}>
-            2 inspections remaining · 3 days left in cycle
+            2 inspections remaining · 3 days
+            left in cycle
           </Text>
         </Surface>
 
@@ -1120,15 +1473,22 @@ function HomeScreen({
             <Text style={styles.sectionTitle}>
               Recent inspections
             </Text>
+
             <Text style={styles.sectionSubtitle}>
               Latest field activity
             </Text>
           </View>
 
           <Pressable
-            onPress={() => onNavigate('institutes')}
+            onPress={() =>
+              onNavigate(
+                'institutes',
+              )
+            }
           >
-            <Text style={styles.seeAll}>View all</Text>
+            <Text style={styles.seeAll}>
+              View all
+            </Text>
           </Pressable>
         </View>
 
@@ -1138,10 +1498,14 @@ function HomeScreen({
         ].map((name, index) => (
           <Pressable
             key={name}
-            onPress={() => onNavigate('gps')}
+            onPress={() =>
+              onNavigate('gps')
+            }
             style={styles.recentRow}
           >
-            <View style={styles.recentIcon}>
+            <View
+              style={styles.recentIcon}
+            >
               <Icon
                 name={
                   index === 0
@@ -1154,8 +1518,19 @@ function HomeScreen({
             </View>
 
             <View style={{ flex: 1 }}>
-              <Text style={styles.recentTitle}>{name}</Text>
-              <Text style={styles.recentMeta}>
+              <Text
+                style={
+                  styles.recentTitle
+                }
+              >
+                {name}
+              </Text>
+
+              <Text
+                style={
+                  styles.recentMeta
+                }
+              >
                 {index === 0
                   ? 'Completed · 5 Sep 2026'
                   : 'Scheduled · 8 Sep 2026'}
@@ -1163,8 +1538,16 @@ function HomeScreen({
             </View>
 
             <StatusBadge
-              label={index === 0 ? 'Verified' : 'Due soon'}
-              tone={index === 0 ? 'success' : 'warning'}
+              label={
+                index === 0
+                  ? 'Verified'
+                  : 'Due soon'
+              }
+              tone={
+                index === 0
+                  ? 'success'
+                  : 'warning'
+              }
             />
           </Pressable>
         ))}
@@ -1178,12 +1561,16 @@ function AlertsScreen({
   setSearch,
   onBack,
   onOpen,
+  onCall,
+  onEscalate,
   onToast,
 }: {
   search: string;
   setSearch: (value: string) => void;
   onBack: () => void;
   onOpen: (item: AlertItem) => void;
+  onCall: () => void;
+  onEscalate: () => void;
   onToast: (message: string) => void;
 }) {
   const [filter, setFilter] = useState<
@@ -1192,11 +1579,18 @@ function AlertsScreen({
 
   const filtered = alerts.filter(
     (item) =>
-      (filter === 'All' || item.severity === filter) &&
-      (item.title.toLowerCase().includes(search.toLowerCase()) ||
+      (filter === 'All' ||
+        item.severity === filter) &&
+      (item.title
+        .toLowerCase()
+        .includes(
+          search.toLowerCase(),
+        ) ||
         item.institute
           .toLowerCase()
-          .includes(search.toLowerCase())),
+          .includes(
+            search.toLowerCase(),
+          )),
   );
 
   return (
@@ -1214,7 +1608,12 @@ function AlertsScreen({
         }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+        showsVerticalScrollIndicator={false}
+      >
         <SearchBar
           value={search}
           onChangeText={setSearch}
@@ -1224,40 +1623,56 @@ function AlertsScreen({
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipRow}
+          contentContainerStyle={
+            styles.chipRow
+          }
         >
-          {['All', 'Critical', 'High', 'Medium'].map(
-            (item) => (
-              <Chip
-                key={item}
-                label={`${item} ${
-                  item === 'All'
-                    ? '(7)'
-                    : item === 'Critical'
-                      ? '(2)'
-                      : item === 'High'
-                        ? '(3)'
-                        : '(2)'
-                }`}
-                selected={filter === item}
-                tone={
-                  item === 'Critical'
-                    ? 'red'
+          {[
+            'All',
+            'Critical',
+            'High',
+            'Medium',
+          ].map((item) => (
+            <Chip
+              key={item}
+              label={`${item} ${
+                item === 'All'
+                  ? '(7)'
+                  : item ===
+                      'Critical'
+                    ? '(2)'
                     : item === 'High'
-                      ? 'amber'
-                      : 'teal'
-                }
-                onPress={() =>
-                  setFilter(item as typeof filter)
-                }
-              />
-            ),
-          )}
+                      ? '(3)'
+                      : '(2)'
+              }`}
+              selected={filter === item}
+              tone={
+                item === 'Critical'
+                  ? 'red'
+                  : item === 'High'
+                    ? 'amber'
+                    : 'teal'
+              }
+              onPress={() =>
+                setFilter(
+                  item as typeof filter,
+                )
+              }
+            />
+          ))}
         </ScrollView>
 
-        <Surface style={styles.aiSummary}>
-          <View style={styles.aiSummaryHead}>
-            <View style={styles.aiIcon}>
+        <Surface
+          style={styles.aiSummary}
+        >
+          <View
+            style={
+              styles.aiSummaryHead
+            }
+          >
+            <View
+              style={styles.aiIcon}
+            >
               <Icon
                 name="brain"
                 color={colors.teal}
@@ -1266,11 +1681,21 @@ function AlertsScreen({
             </View>
 
             <View>
-              <Text style={styles.aiSummaryTitle}>
+              <Text
+                style={
+                  styles.aiSummaryTitle
+                }
+              >
                 AI Anomaly Detection
               </Text>
-              <Text style={styles.aiSummarySubtitle}>
-                Real-time analysis across all active cameras
+
+              <Text
+                style={
+                  styles.aiSummarySubtitle
+                }
+              >
+                Real-time analysis across all
+                active cameras
               </Text>
             </View>
 
@@ -1318,22 +1743,37 @@ function AlertsScreen({
           >
             <ImageThumb
               source={item.image}
-              style={styles.alertCardImage}
+              style={
+                styles.alertCardImage
+              }
             />
 
-            <View style={styles.alertCardContent}>
-              <View style={styles.alertCardTop}>
+            <View
+              style={
+                styles.alertCardContent
+              }
+            >
+              <View
+                style={
+                  styles.alertCardTop
+                }
+              >
                 <StatusBadge
                   label={item.severity}
                   tone={
-                    item.severity === 'Critical'
+                    item.severity ===
+                    'Critical'
                       ? 'critical'
-                      : item.severity === 'High'
+                      : item.severity ===
+                          'High'
                         ? 'warning'
                         : 'info'
                   }
                 />
-                <Text style={styles.alertTime}>
+
+                <Text
+                  style={styles.alertTime}
+                >
                   {item.time}
                 </Text>
               </View>
@@ -1342,7 +1782,11 @@ function AlertsScreen({
                 {item.title}
               </Text>
 
-              <Text style={styles.alertInstitute}>
+              <Text
+                style={
+                  styles.alertInstitute
+                }
+              >
                 <Icon
                   name="map-marker-outline"
                   color={colors.inkMuted}
@@ -1353,30 +1797,45 @@ function AlertsScreen({
 
               <Text
                 numberOfLines={2}
-                style={styles.alertDescription}
+                style={
+                  styles.alertDescription
+                }
               >
                 {item.description}
               </Text>
 
-              <View style={styles.confidenceRow}>
+              <View
+                style={
+                  styles.confidenceRow
+                }
+              >
                 <Icon
                   name="brain"
                   color={colors.teal}
                   size={16}
                 />
 
-                <Text style={styles.confidenceLabel}>
+                <Text
+                  style={
+                    styles.confidenceLabel
+                  }
+                >
                   AI Confidence
                 </Text>
 
-                <View style={styles.confidenceTrack}>
+                <View
+                  style={
+                    styles.confidenceTrack
+                  }
+                >
                   <View
                     style={[
                       styles.confidenceFill,
                       {
                         width: `${item.confidence}%`,
                         backgroundColor:
-                          item.severity === 'Critical'
+                          item.severity ===
+                          'Critical'
                             ? colors.red
                             : colors.amber,
                       },
@@ -1384,32 +1843,36 @@ function AlertsScreen({
                   />
                 </View>
 
-                <Text style={styles.confidenceValue}>
+                <Text
+                  style={
+                    styles.confidenceValue
+                  }
+                >
                   {item.confidence}%
                 </Text>
               </View>
 
-              <View style={styles.alertActions}>
+              <View
+                style={
+                  styles.alertActions
+                }
+              >
                 <SecondaryButton
                   label="Verify by call"
                   icon="phone-outline"
-                  onPress={() =>
-                    onToast(
-                      'Verification call queued for the institute',
-                    )
+                  onPress={onCall}
+                  style={
+                    styles.smallButton
                   }
-                  style={styles.smallButton}
                 />
 
                 <PrimaryButton
                   label="Escalate"
                   icon="arrow-up-bold-outline"
-                  onPress={() =>
-                    onToast(
-                      'Inspection flow created from this alert',
-                    )
+                  onPress={onEscalate}
+                  style={
+                    styles.smallPrimary
                   }
-                  style={styles.smallPrimary}
                 />
               </View>
             </View>
@@ -1439,7 +1902,11 @@ function AlertDetailScreen({
         onBack={onBack}
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
         <ImageThumb
           source={item.image}
           style={styles.detailImage}
@@ -1460,35 +1927,57 @@ function AlertDetailScreen({
           {item.title}
         </Text>
 
-        <Text style={styles.detailInstitute}>
+        <Text
+          style={styles.detailInstitute}
+        >
           {item.institute}
         </Text>
 
-        <Surface style={styles.detailPanel}>
-          <Text style={styles.panelHeading}>
+        <Surface
+          style={styles.detailPanel}
+        >
+          <Text
+            style={styles.panelHeading}
+          >
             Why this was flagged
           </Text>
 
-          <Text style={styles.bodyText}>
+          <Text
+            style={styles.bodyText}
+          >
             {item.description}
           </Text>
 
-          <View style={styles.detailMetric}>
+          <View
+            style={styles.detailMetric}
+          >
             <View>
-              <Text style={styles.detailMetricLabel}>
+              <Text
+                style={
+                  styles.detailMetricLabel
+                }
+              >
                 AI confidence
               </Text>
 
-              <Text style={styles.detailMetricValue}>
+              <Text
+                style={
+                  styles.detailMetricValue
+                }
+              >
                 {item.confidence}%
               </Text>
             </View>
 
-            <View style={styles.largeProgress}>
+            <View
+              style={styles.largeProgress}
+            >
               <View
                 style={[
                   styles.confidenceFill,
-                  { width: `${item.confidence}%` },
+                  {
+                    width: `${item.confidence}%`,
+                  },
                 ]}
               />
             </View>
@@ -1499,7 +1988,9 @@ function AlertDetailScreen({
           </Text>
         </Surface>
 
-        <View style={styles.actionStack}>
+        <View
+          style={styles.actionStack}
+        >
           <PrimaryButton
             label="Verify by call"
             icon="phone-outline"
@@ -1530,15 +2021,23 @@ function CCTVScreen({
   onOpen: (item: Feed) => void;
   onToast: (message: string) => void;
 }) {
-  const [filter, setFilter] = useState('All Feeds');
+  const [filter, setFilter] =
+    useState('All Feeds');
 
   const filtered = feeds.filter(
     (item) =>
-      (filter === 'All Feeds' || item.status === filter) &&
-      (item.name.toLowerCase().includes(search.toLowerCase()) ||
+      (filter === 'All Feeds' ||
+        item.status === filter) &&
+      (item.name
+        .toLowerCase()
+        .includes(
+          search.toLowerCase(),
+        ) ||
         item.institute
           .toLowerCase()
-          .includes(search.toLowerCase())),
+          .includes(
+            search.toLowerCase(),
+          )),
   );
 
   return (
@@ -1556,60 +2055,90 @@ function CCTVScreen({
         }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
         <SearchBar
           value={search}
           onChangeText={setSearch}
           placeholder="Search institutes, IDs, district..."
           onFilter={() =>
-            onToast('CCTV filters are ready')
+            onToast(
+              'CCTV filters are ready',
+            )
           }
         />
 
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipRow}
+          contentContainerStyle={
+            styles.chipRow
+          }
         >
-          {['All Feeds', 'Live', 'Offline', 'AI Flagged'].map(
-            (item) => (
-              <Chip
-                key={item}
-                label={`${item} (${
-                  item === 'All Feeds'
-                    ? 18
-                    : item === 'Live'
-                      ? 15
-                      : item === 'Offline'
-                        ? 3
-                        : 4
-                })`}
-                selected={filter === item}
-                onPress={() => setFilter(item)}
-              />
-            ),
-          )}
+          {[
+            'All Feeds',
+            'Live',
+            'Offline',
+            'AI Flagged',
+          ].map((item) => (
+            <Chip
+              key={item}
+              label={`${item} (${
+                item === 'All Feeds'
+                  ? 18
+                  : item === 'Live'
+                    ? 15
+                    : item ===
+                        'Offline'
+                      ? 3
+                      : 4
+              })`}
+              selected={filter === item}
+              onPress={() =>
+                setFilter(item)
+              }
+            />
+          ))}
         </ScrollView>
 
-        <View style={styles.cctvGrid}>
+        <View
+          style={styles.cctvGrid}
+        >
           {filtered.map((item) => (
             <Pressable
               key={item.id}
-              onPress={() => onOpen(item)}
-              style={styles.cctvCard}
+              onPress={() =>
+                onOpen(item)
+              }
+              style={
+                styles.cctvCard
+              }
             >
-              <View style={styles.cctvImageWrap}>
+              <View
+                style={
+                  styles.cctvImageWrap
+                }
+              >
                 <ImageThumb
                   source={item.image}
-                  style={styles.cctvImage}
+                  style={
+                    styles.cctvImage
+                  }
                 />
 
-                <View style={styles.livePill}>
+                <View
+                  style={styles.livePill}
+                >
                   <View
                     style={[
                       styles.liveDot,
-                      item.status === 'AI Flagged' && {
-                        backgroundColor: colors.red,
+                      item.status ===
+                        'AI Flagged' && {
+                        backgroundColor:
+                          colors.red,
                       },
                     ]}
                   />
@@ -1617,22 +2146,31 @@ function CCTVScreen({
                   <Text
                     style={[
                       styles.livePillText,
-                      item.status === 'AI Flagged' && {
-                        color: colors.red,
+                      item.status ===
+                        'AI Flagged' && {
+                        color:
+                          colors.red,
                       },
                     ]}
                   >
-                    {item.status === 'AI Flagged'
+                    {item.status ===
+                    'AI Flagged'
                       ? 'AI FLAGGED'
                       : 'LIVE'}
                   </Text>
                 </View>
 
-                <Text style={styles.cctvTime}>
+                <Text
+                  style={styles.cctvTime}
+                >
                   {item.time}
                 </Text>
 
-                <View style={styles.cctvExpand}>
+                <View
+                  style={
+                    styles.cctvExpand
+                  }
+                >
                   <Icon
                     name="fullscreen"
                     color={colors.white}
@@ -1641,19 +2179,37 @@ function CCTVScreen({
                 </View>
               </View>
 
-              <View style={styles.cctvCopy}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.cctvName}>
+              <View
+                style={
+                  styles.cctvCopy
+                }
+              >
+                <View
+                  style={{ flex: 1 }}
+                >
+                  <Text
+                    style={
+                      styles.cctvName
+                    }
+                  >
                     {item.name}
                   </Text>
 
-                  <Text style={styles.cctvInstitute}>
+                  <Text
+                    style={
+                      styles.cctvInstitute
+                    }
+                  >
                     {item.institute}
                   </Text>
 
-                  {Boolean(item.note) && (
+                  {Boolean(
+                    item.note,
+                  ) && (
                     <StatusBadge
-                      label={item.note as string}
+                      label={
+                        item.note as string
+                      }
                       tone="warning"
                     />
                   )}
@@ -1661,19 +2217,25 @@ function CCTVScreen({
 
                 <StatusBadge
                   label={
-                    item.status === 'AI Flagged'
+                    item.status ===
+                    'AI Flagged'
                       ? 'Review'
                       : 'Live'
                   }
                   tone={
-                    item.status === 'AI Flagged'
+                    item.status ===
+                    'AI Flagged'
                       ? 'warning'
                       : 'success'
                   }
                 />
               </View>
 
-              <View style={styles.cctvActions}>
+              <View
+                style={
+                  styles.cctvActions
+                }
+              >
                 <Pressable
                   onPress={() =>
                     onToast(
@@ -1688,11 +2250,17 @@ function CCTVScreen({
                   />
                 </Pressable>
 
-                <View style={styles.actionDivider} />
+                <View
+                  style={
+                    styles.actionDivider
+                  }
+                />
 
                 <Pressable
                   onPress={() =>
-                    onToast('Camera settings opened')
+                    onToast(
+                      'Camera settings opened',
+                    )
                   }
                 >
                   <Icon
@@ -1729,24 +2297,40 @@ function CCTVDetailScreen({
         title={feed.name}
         subtitle={feed.institute}
         onBack={onBack}
-        right={<StatusBadge label="Live" />}
+        right={
+          <StatusBadge label="Live" />
+        }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.cctvHero}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
+        <View
+          style={styles.cctvHero}
+        >
           <Image
             source={feed.image}
-            style={styles.cctvHeroImage}
+            style={
+              styles.cctvHeroImage
+            }
           />
 
-          <View style={styles.videoOverlay}>
+          <View
+            style={styles.videoOverlay}
+          >
             <Icon
               name="play-circle-outline"
               color={colors.white}
               size={56}
             />
 
-            <Text style={styles.videoOverlayText}>
+            <Text
+              style={
+                styles.videoOverlayText
+              }
+            >
               Live preview
             </Text>
           </View>
@@ -1754,25 +2338,41 @@ function CCTVDetailScreen({
 
         <View style={styles.detailRow}>
           <StatusBadge label="LIVE" />
-          <Text style={styles.detailMeta}>
+
+          <Text
+            style={styles.detailMeta}
+          >
             {feed.time}
           </Text>
         </View>
 
-        <Surface style={styles.detailPanel}>
-          <Text style={styles.panelHeading}>
+        <Surface
+          style={styles.detailPanel}
+        >
+          <Text
+            style={styles.panelHeading}
+          >
             Camera controls
           </Text>
 
-          <View style={styles.cameraControlRow}>
+          <View
+            style={
+              styles.cameraControlRow
+            }
+          >
             {[
               ['volume-high', 'Audio'],
               ['rotate-3d-variant', 'Rotate'],
-              ['record-circle-outline', 'Snapshot'],
+              [
+                'record-circle-outline',
+                'Snapshot',
+              ],
             ].map(([icon, label]) => (
               <Pressable
                 key={label}
-                style={styles.cameraControl}
+                style={
+                  styles.cameraControl
+                }
               >
                 <Icon
                   name={icon as any}
@@ -1780,7 +2380,11 @@ function CCTVDetailScreen({
                   size={22}
                 />
 
-                <Text style={styles.cameraControlText}>
+                <Text
+                  style={
+                    styles.cameraControlText
+                  }
+                >
                   {label}
                 </Text>
               </Pressable>
@@ -1801,13 +2405,14 @@ function VideoVerificationScreen({
   onCall: () => void;
   onToast: (message: string) => void;
 }) {
-  const [checked, setChecked] = useState([
-    true,
-    true,
-    true,
-    true,
-    true,
-  ]);
+  const [checked, setChecked] =
+    useState([
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
 
   const labels = [
     'Staff member on duty matches roster',
@@ -1825,54 +2430,115 @@ function VideoVerificationScreen({
         onBack={onBack}
         dark
         right={
-          <View style={styles.secureLabel}>
+          <View
+            style={
+              styles.secureLabel
+            }
+          >
             <Icon
               name="shield-check-outline"
               color={colors.white}
               size={20}
             />
-            <Text style={styles.secureText}>
+
+            <Text
+              style={
+                styles.secureText
+              }
+            >
               Secure &{'\n'}Verified
             </Text>
           </View>
         }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Surface dark style={styles.videoCard}>
-          <View style={styles.videoCardTop}>
-            <StatusBadge label="Random" tone="info" />
-            <Text style={styles.timerPill}>◷ 04:58</Text>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
+        <Surface
+          dark
+          style={styles.videoCard}
+        >
+          <View
+            style={
+              styles.videoCardTop
+            }
+          >
+            <StatusBadge
+              label="Random"
+              tone="info"
+            />
+
+            <Text
+              style={
+                styles.timerPill
+              }
+            >
+              ◷ 04:58
+            </Text>
           </View>
 
-          <Text style={styles.videoTitle}>
-            Start Random{'\n'}Video Verification
+          <Text
+            style={styles.videoTitle}
+          >
+            Start Random{'\n'}
+            Video Verification
           </Text>
 
-          <Text style={styles.videoSubtitle}>
+          <Text
+            style={
+              styles.videoSubtitle
+            }
+          >
             Unscheduled call to verify real-time presence of staff and
             beneficiaries.
           </Text>
 
-          <View style={styles.inspectorCircle}>
+          <View
+            style={
+              styles.inspectorCircle
+            }
+          >
             <Image
-              source={inspectorImage}
-              style={styles.inspectorPhoto}
+              source={
+                inspectorImage
+              }
+              style={
+                styles.inspectorPhoto
+              }
             />
           </View>
 
-          <Text style={styles.inspectorName}>Inspector</Text>
+          <Text
+            style={
+              styles.inspectorName
+            }
+          >
+            Inspector
+          </Text>
 
           <PrimaryButton
             label="Initiate Random Video Call"
             icon="video-outline"
             onPress={onCall}
-            style={styles.videoButton}
+            style={
+              styles.videoButton
+            }
           />
         </Surface>
 
-        <Surface style={styles.institutePanel}>
-          <View style={styles.instituteIcon}>
+        <Surface
+          style={
+            styles.institutePanel
+          }
+        >
+          <View
+            style={
+              styles.instituteIcon
+            }
+          >
             <Icon
               name="bank-outline"
               color={colors.white}
@@ -1880,16 +2546,30 @@ function VideoVerificationScreen({
             />
           </View>
 
-          <View style={{ flex: 1 }}>
-            <Text style={styles.mutedLabel}>
+          <View
+            style={{ flex: 1 }}
+          >
+            <Text
+              style={
+                styles.mutedLabel
+              }
+            >
               Reception of NGO
             </Text>
 
-            <Text style={styles.instituteName}>
+            <Text
+              style={
+                styles.instituteName
+              }
+            >
               Rukmini Shelter Home
             </Text>
 
-            <Text style={styles.locationLine}>
+            <Text
+              style={
+                styles.locationLine
+              }
+            >
               <Icon
                 name="map-marker-outline"
                 color={colors.teal}
@@ -1906,9 +2586,21 @@ function VideoVerificationScreen({
           />
         </Surface>
 
-        <Surface style={styles.checklistPanel}>
-          <View style={styles.panelHeader}>
-            <View style={styles.checklistIcon}>
+        <Surface
+          style={
+            styles.checklistPanel
+          }
+        >
+          <View
+            style={
+              styles.panelHeader
+            }
+          >
+            <View
+              style={
+                styles.checklistIcon
+              }
+            >
               <Icon
                 name="clipboard-check-outline"
                 color={colors.teal}
@@ -1916,63 +2608,96 @@ function VideoVerificationScreen({
               />
             </View>
 
-            <Text style={styles.panelHeading}>
+            <Text
+              style={
+                styles.panelHeading
+              }
+            >
               Verification Checklist
             </Text>
           </View>
 
-          {labels.map((label, index) => (
-            <Pressable
-              key={label}
-              onPress={() =>
-                setChecked((current) =>
-                  current.map((value, itemIndex) =>
-                    itemIndex === index ? !value : value,
-                  ),
-                )
-              }
-              style={styles.checkRow}
-            >
-              <View
-                style={[
-                  styles.checkboxRound,
-                  checked[index] &&
-                    styles.checkboxRoundChecked,
-                ]}
+          {labels.map(
+            (label, index) => (
+              <Pressable
+                key={label}
+                onPress={() =>
+                  setChecked(
+                    (current) =>
+                      current.map(
+                        (
+                          value,
+                          itemIndex,
+                        ) =>
+                          itemIndex ===
+                          index
+                            ? !value
+                            : value,
+                      ),
+                  )
+                }
+                style={
+                  styles.checkRow
+                }
               >
-                {checked[index] && (
-                  <Icon
-                    name="check"
-                    color={colors.white}
-                    size={13}
-                  />
-                )}
-              </View>
+                <View
+                  style={[
+                    styles.checkboxRound,
+                    checked[index] &&
+                      styles.checkboxRoundChecked,
+                  ]}
+                >
+                  {checked[index] && (
+                    <Icon
+                      name="check"
+                      color={
+                        colors.white
+                      }
+                      size={13}
+                    />
+                  )}
+                </View>
 
-              <Text
-                style={[
-                  styles.checkLabel,
-                  !checked[index] && {
-                    color: colors.inkMuted,
-                  },
-                ]}
-              >
-                {label}
-              </Text>
-            </Pressable>
-          ))}
+                <Text
+                  style={[
+                    styles.checkLabel,
+                    !checked[
+                      index
+                    ] && {
+                      color:
+                        colors.inkMuted,
+                    },
+                  ]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            ),
+          )}
         </Surface>
 
         <Pressable
-          onPress={() => onToast('Notes panel opened')}
-          style={styles.notesBar}
+          onPress={() =>
+            onToast(
+              'Notes panel opened',
+            )
+          }
+          style={
+            styles.notesBar
+          }
         >
           <Icon
             name="note-text-outline"
             color={colors.teal}
             size={22}
           />
-          <Text style={styles.notesText}>Add Notes</Text>
+
+          <Text
+            style={styles.notesText}
+          >
+            Add Notes
+          </Text>
+
           <Icon
             name="chevron-right"
             color={colors.teal}
@@ -1989,20 +2714,32 @@ function CallScreen({
   setState,
   onBack,
 }: {
-  state: 'idle' | 'connecting' | 'connected' | 'ended';
+  state:
+    | 'idle'
+    | 'connecting'
+    | 'connected'
+    | 'ended';
   setState: (
-    value: 'idle' | 'connecting' | 'connected' | 'ended',
+    value:
+      | 'idle'
+      | 'connecting'
+      | 'connected'
+      | 'ended',
   ) => void;
   onBack: () => void;
 }) {
   useEffect(() => {
     if (state === 'connecting') {
       const timer = setTimeout(
-        () => setState('connected'),
+        () =>
+          setState(
+            'connected',
+          ),
         1500,
       );
 
-      return () => clearTimeout(timer);
+      return () =>
+        clearTimeout(timer);
     }
 
     return undefined;
@@ -2013,8 +2750,10 @@ function CallScreen({
       <View
         style={{
           paddingTop:
-            useSafeAreaInsets().top + spacing.sm,
-          paddingHorizontal: spacing.xl,
+            useSafeAreaInsets().top +
+            spacing.sm,
+          paddingHorizontal:
+            spacing.xl,
         }}
       >
         <Pressable
@@ -2029,54 +2768,99 @@ function CallScreen({
         </Pressable>
       </View>
 
-      <View style={styles.callCenter}>
-        <View style={styles.callAvatar}>
-          <Text style={styles.callInitials}>AK</Text>
+      <View
+        style={styles.callCenter}
+      >
+        <View
+          style={styles.callAvatar}
+        >
+          <Text
+            style={
+              styles.callInitials
+            }
+          >
+            AK
+          </Text>
         </View>
 
-        <Text style={styles.callTitle}>
-          {state === 'connecting'
+        <Text
+          style={styles.callTitle}
+        >
+          {state ===
+          'connecting'
             ? 'Connecting…'
-            : state === 'connected'
+            : state ===
+                'connected'
               ? 'Verification call active'
-              : state === 'ended'
+              : state ===
+                  'ended'
                 ? 'Call ended'
                 : 'Ready to connect'}
         </Text>
 
-        <Text style={styles.callSubtitle}>
-          {state === 'connecting'
+        <Text
+          style={
+            styles.callSubtitle
+          }
+        >
+          {state ===
+          'connecting'
             ? 'Securing a private line with the institute'
-            : state === 'connected'
+            : state ===
+                'connected'
               ? 'Rukmini Shelter Home · Secure line'
               : state === 'ended'
                 ? 'Your verification notes have been saved'
                 : 'Tap start to begin the demo call'}
         </Text>
 
-        {state === 'connected' && (
-          <View style={styles.mockPreview}>
+        {state ===
+          'connected' && (
+          <View
+            style={
+              styles.mockPreview
+            }
+          >
             <Image
-              source={feeds[0].image}
-              style={styles.mockPreviewImage}
+              source={
+                feeds[0].image
+              }
+              style={
+                styles.mockPreviewImage
+              }
             />
 
-            <View style={styles.mockPreviewBadge}>
+            <View
+              style={
+                styles.mockPreviewBadge
+              }
+            >
               <Icon
                 name="video-outline"
-                color={colors.white}
+                color={
+                  colors.white
+                }
                 size={16}
               />
 
-              <Text style={styles.mockPreviewText}>
+              <Text
+                style={
+                  styles.mockPreviewText
+                }
+              >
                 Institute camera
               </Text>
             </View>
           </View>
         )}
 
-        {state === 'connecting' && (
-          <View style={styles.connectingDots}>
+        {state ===
+          'connecting' && (
+          <View
+            style={
+              styles.connectingDots
+            }
+          >
             <View />
             <View />
             <View />
@@ -2084,22 +2868,35 @@ function CallScreen({
         )}
       </View>
 
-      <View style={styles.callControls}>
-        {state === 'connected' && (
-          <Pressable style={styles.callCircle}>
+      <View
+        style={
+          styles.callControls
+        }
+      >
+        {state ===
+          'connected' && (
+          <Pressable
+            style={
+              styles.callCircle
+            }
+          >
             <Icon
               name="microphone-off"
-              color={colors.white}
+              color={
+                colors.white
+              }
               size={22}
             />
           </Pressable>
         )}
 
-        {state !== 'ended' && (
+        {state !==
+          'ended' && (
           <Pressable
             onPress={() =>
               setState(
-                state === 'connected'
+                state ===
+                  'connected'
                   ? 'ended'
                   : 'connecting',
               )
@@ -2111,7 +2908,8 @@ function CallScreen({
           >
             <Icon
               name={
-                state === 'connected'
+                state ===
+                'connected'
                   ? 'phone-hangup'
                   : 'video-outline'
               }
@@ -2125,17 +2923,29 @@ function CallScreen({
   );
 }
 
-function Stepper({ step }: { step: number }) {
+function Stepper({
+  step,
+}: {
+  step: number;
+}) {
   return (
-    <View style={styles.stepper}>
+    <View
+      style={styles.stepper}
+    >
       {[
         'GPS verification',
         'Checklist',
         'Evidence',
         'Submit report',
       ].map((label, index) => (
-        <React.Fragment key={label}>
-          <View style={styles.stepItem}>
+        <React.Fragment
+          key={label}
+        >
+          <View
+            style={
+              styles.stepItem
+            }
+          >
             <View
               style={[
                 styles.stepCircle,
@@ -2149,7 +2959,9 @@ function Stepper({ step }: { step: number }) {
               {index < step ? (
                 <Icon
                   name="check"
-                  color={colors.white}
+                  color={
+                    colors.white
+                  }
                   size={14}
                 />
               ) : (
@@ -2157,7 +2969,8 @@ function Stepper({ step }: { step: number }) {
                   style={[
                     styles.stepNumber,
                     index === step && {
-                      color: colors.white,
+                      color:
+                        colors.white,
                     },
                   ]}
                 >
@@ -2195,21 +3008,33 @@ function Stepper({ step }: { step: number }) {
 function GpsScreen({
   gpsState,
   currentLocation,
+  gpsDistance,
   onBack,
   onNext,
   onMap,
 }: {
-  gpsState: 'checking' | 'verified';
-  currentLocation: Location.LocationObjectCoords | null;
+  gpsState:
+    | 'checking'
+    | 'verified'
+    | 'failed';
+  currentLocation:
+    | Location.LocationObjectCoords
+    | null;
+  gpsDistance: number | null;
   onBack: () => void;
   onNext: () => void;
   onMap: () => void;
 }) {
   const currentLatitude =
-    currentLocation?.latitude ?? 28.6141;
+    currentLocation?.latitude ?? 0;
 
   const currentLongitude =
-    currentLocation?.longitude ?? 77.2088;
+    currentLocation?.longitude ?? 0;
+
+  const mapRegion =
+    getMapRegion(
+      currentLocation,
+    );
 
   return (
     <View style={styles.screen}>
@@ -2219,27 +3044,49 @@ function GpsScreen({
         onBack={onBack}
         dark
         right={
-          <View style={styles.secureLabel}>
+          <View
+            style={
+              styles.secureLabel
+            }
+          >
             <Icon
               name="shield-check-outline"
               color={colors.white}
               size={20}
             />
-            <Text style={styles.secureText}>
-              Secure &{'\n'}Verified
+
+            <Text
+              style={
+                styles.secureText
+              }
+            >
+              Secure &{'\n'}
+              Verified
             </Text>
           </View>
         }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
         <Stepper step={0} />
 
         <InstituteBanner />
 
-        <Surface style={styles.gpsPanel}>
-          <View style={styles.panelHeader}>
-            <View style={styles.gpsIcon}>
+        <Surface
+          style={styles.gpsPanel}
+        >
+          <View
+            style={
+              styles.panelHeader
+            }
+          >
+            <View
+              style={styles.gpsIcon}
+            >
               <Icon
                 name="map-marker-radius-outline"
                 color={colors.teal}
@@ -2247,14 +3094,24 @@ function GpsScreen({
               />
             </View>
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.panelHeading}>
+            <View
+              style={{ flex: 1 }}
+            >
+              <Text
+                style={
+                  styles.panelHeading
+                }
+              >
                 GPS Verification
               </Text>
 
-              <Text style={styles.panelSubheading}>
-                Confirm you are physically present at the
-                registered institute address before proceeding.
+              <Text
+                style={
+                  styles.panelSubheading
+                }
+              >
+                Confirm you are physically present at the registered
+                institute address before proceeding.
               </Text>
             </View>
 
@@ -2262,170 +3119,263 @@ function GpsScreen({
               label="View on Map"
               icon="map-outline"
               onPress={onMap}
-              style={styles.compactButton}
+              style={
+                styles.compactButton
+              }
             />
           </View>
 
-          <View style={styles.locationColumns}>
-            <View style={styles.locationColumn}>
-              <Text style={styles.locationLabel}>
+          <View
+            style={
+              styles.locationColumns
+            }
+          >
+            <View
+              style={
+                styles.locationColumn
+              }
+            >
+              <Text
+                style={
+                  styles.locationLabel
+                }
+              >
                 Registered institute location
               </Text>
 
-              <Text style={styles.locationValue}>
+              <Text
+                style={
+                  styles.locationValue
+                }
+              >
                 28.6139° N, 77.2090° E
               </Text>
 
-              <Text style={styles.locationMuted}>
+              <Text
+                style={
+                  styles.locationMuted
+                }
+              >
                 Rukmini Shelter Home, Sector 12,{'\n'}
                 Dwarka, New Delhi
               </Text>
             </View>
 
-            <View style={styles.locationColumn}>
-              <Text style={styles.locationLabel}>
+            <View
+              style={
+                styles.locationColumn
+              }
+            >
+              <Text
+                style={
+                  styles.locationLabel
+                }
+              >
                 Your current location
               </Text>
 
-              <Text style={styles.locationValue}>
-                {currentLatitude.toFixed(4)}° N,{' '}
-                {currentLongitude.toFixed(4)}° E
+              <Text
+                style={
+                  styles.locationValue
+                }
+              >
+                {currentLocation
+                  ? `${currentLatitude.toFixed(4)}° N, ${currentLongitude.toFixed(4)}° E`
+                  : 'Waiting for device GPS…'}
               </Text>
 
-              <Text style={styles.locationMuted}>
+              <Text
+                style={
+                  styles.locationMuted
+                }
+              >
                 {currentLocation
                   ? `Accuracy: ±${Math.round(
-                      currentLocation.accuracy ?? 6,
+                      currentLocation.accuracy ??
+                        0,
                     )}m · Captured via device GPS`
                   : 'Waiting for device GPS...'}
               </Text>
             </View>
           </View>
 
-          {Platform.OS === 'web' ? (
-            <View style={styles.mapWebFallback}>
-              <Icon
-                name="map-outline"
-                color={colors.teal}
-                size={34}
-              />
-
-              <Text style={styles.mapFallbackTitle}>
-                Live map available on iOS & Android
-              </Text>
-
-              <Text style={styles.mapFallbackBody}>
-                Open this app in Expo Go on your phone or tablet
-                to use the device map and GPS marker.
-              </Text>
-            </View>
-          ) : (
-            <MapView
-              style={styles.realMap}
-              initialRegion={{
-                latitude: REGISTERED_LATITUDE,
-                longitude: REGISTERED_LONGITUDE,
-                latitudeDelta: 0.0045,
-                longitudeDelta: 0.0045,
+          <MapView
+            key={
+              currentLocation
+                ? `${currentLatitude}-${currentLongitude}`
+                : 'registered'
+            }
+            style={styles.realMap}
+            initialRegion={
+              mapRegion
+            }
+            showsUserLocation={Boolean(
+              currentLocation,
+            )}
+            showsMyLocationButton
+            loadingEnabled
+            mapType="standard"
+          >
+            <Marker
+              coordinate={{
+                latitude:
+                  REGISTERED_LATITUDE,
+                longitude:
+                  REGISTERED_LONGITUDE,
               }}
-              region={
-                currentLocation
-                  ? {
-                      latitude: currentLatitude,
-                      longitude: currentLongitude,
-                      latitudeDelta: 0.0045,
-                      longitudeDelta: 0.0045,
-                    }
-                  : undefined
-              }
-              showsUserLocation={Boolean(currentLocation)}
-              showsMyLocationButton={true}
-              loadingEnabled={true}
-              mapType="standard"
-            >
+              title="Registered Institute"
+              description="Rukmini Shelter Home for Women"
+              pinColor={colors.teal}
+            />
+
+            {currentLocation && (
               <Marker
                 coordinate={{
-                  latitude: REGISTERED_LATITUDE,
-                  longitude: REGISTERED_LONGITUDE,
+                  latitude:
+                    currentLatitude,
+                  longitude:
+                    currentLongitude,
                 }}
-                title="Registered Institute"
-                description="Rukmini Shelter Home for Women"
-                pinColor={colors.teal}
+                title="Your current GPS location"
+                description="Captured from device GPS"
+                pinColor={colors.red}
               />
+            )}
+          </MapView>
 
-              {currentLocation && (
-                <Marker
-                  coordinate={{
-                    latitude: currentLatitude,
-                    longitude: currentLongitude,
-                  }}
-                  title="Your current location"
-                  description="Captured from device GPS"
-                  pinColor={colors.red}
-                />
-              )}
-            </MapView>
-          )}
-
-          <View style={styles.mapLegend}>
-            <View style={styles.legendItem}>
+          <View
+            style={styles.mapLegend}
+          >
+            <View
+              style={styles.legendItem}
+            >
               <View
                 style={[
                   styles.legendDot,
-                  { backgroundColor: colors.teal },
+                  {
+                    backgroundColor:
+                      colors.teal,
+                  },
                 ]}
               />
 
-              <Text style={styles.legendText}>
+              <Text
+                style={
+                  styles.legendText
+                }
+              >
                 Registered institute
               </Text>
             </View>
 
-            <View style={styles.legendItem}>
+            <View
+              style={styles.legendItem}
+            >
               <View
                 style={[
                   styles.legendDot,
-                  { backgroundColor: colors.red },
+                  {
+                    backgroundColor:
+                      colors.red,
+                  },
                 ]}
               />
 
-              <Text style={styles.legendText}>
+              <Text
+                style={
+                  styles.legendText
+                }
+              >
                 Your current GPS location
               </Text>
             </View>
           </View>
 
-          <View style={styles.verifiedBar}>
-            <View style={styles.verifiedIcon}>
+          <View
+            style={[
+              styles.verifiedBar,
+              gpsState === 'failed' &&
+                styles.failedBar,
+            ]}
+          >
+            <View
+              style={[
+                styles.verifiedIcon,
+                gpsState === 'failed' &&
+                  styles.failedIcon,
+              ]}
+            >
               <Icon
                 name={
-                  gpsState === 'checking'
+                  gpsState ===
+                  'checking'
                     ? 'crosshairs-gps'
-                    : 'check'
+                    : gpsState ===
+                        'verified'
+                      ? 'check'
+                      : 'alert-circle-outline'
                 }
                 color={colors.white}
                 size={22}
               />
             </View>
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.verifiedTitle}>
-                {gpsState === 'checking'
+            <View
+              style={{ flex: 1 }}
+            >
+              <Text
+                style={[
+                  styles.verifiedTitle,
+                  gpsState ===
+                    'failed' &&
+                    styles.failedTitle,
+                ]}
+              >
+                {gpsState ===
+                'checking'
                   ? 'Checking GPS…'
-                  : 'Location verified successfully'}
+                  : gpsState ===
+                      'verified'
+                    ? 'Location verified successfully'
+                    : 'Location verification failed'}
               </Text>
 
-              <Text style={styles.verifiedBody}>
-                {gpsState === 'checking'
+              <Text
+                style={
+                  styles.verifiedBody
+                }
+              >
+                {gpsState ===
+                'checking'
                   ? 'Confirming your device location'
-                  : 'Within 12m of the registered institute address.  •  Recorded at 4:25:09 PM'}
+                  : gpsState ===
+                      'verified'
+                    ? `Within ${Math.round(
+                        gpsDistance ?? 0,
+                      )}m of the registered institute address · GPS captured from your device`
+                    : gpsDistance !==
+                        null
+                      ? `${(
+                          gpsDistance / 1000
+                        ).toFixed(
+                          1,
+                        )} km from the registered institute · Move closer to continue`
+                      : 'Location permission is required to verify your presence'}
               </Text>
             </View>
           </View>
         </Surface>
 
-        <Surface style={styles.proceedPanel}>
-          <View style={styles.checklistIcon}>
+        <Surface
+          style={
+            styles.proceedPanel
+          }
+        >
+          <View
+            style={
+              styles.checklistIcon
+            }
+          >
             <Icon
               name="clipboard-check-outline"
               color={colors.teal}
@@ -2433,14 +3383,24 @@ function GpsScreen({
             />
           </View>
 
-          <View style={{ flex: 1 }}>
-            <Text style={styles.panelHeading}>
+          <View
+            style={{ flex: 1 }}
+          >
+            <Text
+              style={
+                styles.panelHeading
+              }
+            >
               Proceed to Checklist
             </Text>
 
-            <Text style={styles.panelSubheading}>
-              Now verify the on-site conditions as per the
-              checklist before moving to the next step.
+            <Text
+              style={
+                styles.panelSubheading
+              }
+            >
+              Now verify the on-site conditions as per the checklist before
+              moving to the next step.
             </Text>
           </View>
 
@@ -2448,8 +3408,13 @@ function GpsScreen({
             label="Go to Checklist"
             icon="arrow-right"
             onPress={onNext}
-            disabled={gpsState !== 'verified'}
-            style={styles.proceedButton}
+            disabled={
+              gpsState !==
+              'verified'
+            }
+            style={
+              styles.proceedButton
+            }
           />
         </Surface>
 
@@ -2457,7 +3422,9 @@ function GpsScreen({
           label="Back"
           icon="arrow-left"
           onPress={onBack}
-          style={styles.backWide}
+          style={
+            styles.backWide
+          }
         />
       </ScrollView>
     </View>
@@ -2466,8 +3433,16 @@ function GpsScreen({
 
 function InstituteBanner() {
   return (
-    <Surface style={styles.instituteBanner}>
-      <View style={styles.instituteIcon}>
+    <Surface
+      style={
+        styles.instituteBanner
+      }
+    >
+      <View
+        style={
+          styles.instituteIcon
+        }
+      >
         <Icon
           name="bank-outline"
           color={colors.white}
@@ -2475,13 +3450,23 @@ function InstituteBanner() {
         />
       </View>
 
-      <View style={{ flex: 1 }}>
-        <Text style={styles.instituteName}>
+      <View
+        style={{ flex: 1 }}
+      >
+        <Text
+          style={
+            styles.instituteName
+          }
+        >
           Rukmini Shelter Home for Women
         </Text>
 
-        <Text style={styles.instituteMeta}>
-          Institute ID: MSJE/DL/00231   ·   Inspection ref:
+        <Text
+          style={
+            styles.instituteMeta
+          }
+        >
+          Institute ID: MSJE/DL/00231 · Inspection ref:
           INS-2026-08841
         </Text>
       </View>
@@ -2502,7 +3487,8 @@ function ChecklistScreen({
   onNext: () => void;
   onToast: (message: string) => void;
 }) {
-  const completed = checklist.filter(Boolean).length;
+  const completed =
+    checklist.filter(Boolean).length;
 
   return (
     <View style={styles.screen}>
@@ -2512,26 +3498,53 @@ function ChecklistScreen({
         onBack={onBack}
         dark
         right={
-          <View style={styles.secureLabel}>
+          <View
+            style={
+              styles.secureLabel
+            }
+          >
             <Icon
               name="shield-check-outline"
               color={colors.white}
               size={20}
             />
-            <Text style={styles.secureText}>
-              Secure &{'\n'}Verified
+
+            <Text
+              style={
+                styles.secureText
+              }
+            >
+              Secure &{'\n'}
+              Verified
             </Text>
           </View>
         }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
         <InstituteBanner />
+
         <Stepper step={1} />
 
-        <Surface style={styles.checklistPanelLarge}>
-          <View style={styles.panelHeader}>
-            <View style={styles.checklistIcon}>
+        <Surface
+          style={
+            styles.checklistPanelLarge
+          }
+        >
+          <View
+            style={
+              styles.panelHeader
+            }
+          >
+            <View
+              style={
+                styles.checklistIcon
+              }
+            >
               <Icon
                 name="clipboard-check-outline"
                 color={colors.teal}
@@ -2539,72 +3552,110 @@ function ChecklistScreen({
               />
             </View>
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.panelHeading}>
+            <View
+              style={{ flex: 1 }}
+            >
+              <Text
+                style={
+                  styles.panelHeading
+                }
+              >
                 Inspection checklist
               </Text>
 
-              <Text style={styles.panelSubheading}>
-                {completed} / {checklist.length} completed
+              <Text
+                style={
+                  styles.panelSubheading
+                }
+              >
+                {completed} /{' '}
+                {checklist.length}{' '}
+                completed
               </Text>
             </View>
 
             <StatusBadge
               label={
-                completed === checklist.length
+                completed ===
+                checklist.length
                   ? 'Complete'
                   : 'In progress'
               }
               tone={
-                completed === checklist.length
+                completed ===
+                checklist.length
                   ? 'success'
                   : 'warning'
               }
             />
           </View>
 
-          {checklistItems.map((item, index) => (
-            <Pressable
-              key={item}
-              onPress={() => toggle(index)}
-              style={styles.checkRow}
-            >
-              <View
-                style={[
-                  styles.checkboxRound,
-                  checklist[index] &&
-                    styles.checkboxRoundChecked,
-                ]}
+          {checklistItems.map(
+            (item, index) => (
+              <Pressable
+                key={item}
+                onPress={() =>
+                  toggle(index)
+                }
+                style={
+                  styles.checkRow
+                }
               >
-                {checklist[index] && (
-                  <Icon
-                    name="check"
-                    color={colors.white}
-                    size={13}
-                  />
-                )}
-              </View>
+                <View
+                  style={[
+                    styles.checkboxRound,
+                    checklist[index] &&
+                      styles.checkboxRoundChecked,
+                  ]}
+                >
+                  {checklist[index] && (
+                    <Icon
+                      name="check"
+                      color={
+                        colors.white
+                      }
+                      size={13}
+                    />
+                  )}
+                </View>
 
-              <Text style={styles.checkLabel}>
-                {item}
-              </Text>
-            </Pressable>
-          ))}
+                <Text
+                  style={
+                    styles.checkLabel
+                  }
+                >
+                  {item}
+                </Text>
+              </Pressable>
+            ),
+          )}
         </Surface>
 
-        <Surface style={styles.locationVerifiedSmall}>
+        <Surface
+          style={
+            styles.locationVerifiedSmall
+          }
+        >
           <Icon
             name="map-marker-check-outline"
             color={colors.success}
             size={22}
           />
 
-          <Text style={styles.locationVerifiedText}>
+          <Text
+            style={
+              styles.locationVerifiedText
+            }
+          >
             Location verified at registered address
           </Text>
         </Surface>
 
-        <View style={styles.bottomActions}>
+        <View
+          style={
+            styles.bottomActions
+          }
+        >
           <SecondaryButton
             label="Back"
             icon="arrow-left"
@@ -2621,7 +3672,9 @@ function ChecklistScreen({
                     'Complete at least one checklist item to continue',
                   )
             }
-            style={styles.flexButton}
+            style={
+              styles.flexButton
+            }
           />
         </View>
       </ScrollView>
@@ -2638,12 +3691,16 @@ function EvidenceScreen({
   evidence: {
     id: string;
     title: string;
-    image: number | { uri: string };
+    image:
+      | number
+      | { uri: string };
     time: string;
     coords: string;
   }[];
   onBack: () => void;
-  onAdd: (kind: 'photo' | 'video') => void;
+  onAdd: (
+    kind: 'photo' | 'video',
+  ) => void;
   onNext: () => void;
 }) {
   return (
@@ -2654,26 +3711,53 @@ function EvidenceScreen({
         onBack={onBack}
         dark
         right={
-          <View style={styles.secureLabel}>
+          <View
+            style={
+              styles.secureLabel
+            }
+          >
             <Icon
               name="shield-check-outline"
               color={colors.white}
               size={20}
             />
-            <Text style={styles.secureText}>
-              Secure &{'\n'}Verified
+
+            <Text
+              style={
+                styles.secureText
+              }
+            >
+              Secure &{'\n'}
+              Verified
             </Text>
           </View>
         }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
         <InstituteBanner />
+
         <Stepper step={2} />
 
-        <Surface style={styles.evidencePanel}>
-          <View style={styles.panelHeader}>
-            <View style={styles.checklistIcon}>
+        <Surface
+          style={
+            styles.evidencePanel
+          }
+        >
+          <View
+            style={
+              styles.panelHeader
+            }
+          >
+            <View
+              style={
+                styles.checklistIcon
+              }
+            >
               <Icon
                 name="camera-outline"
                 color={colors.teal}
@@ -2681,37 +3765,68 @@ function EvidenceScreen({
               />
             </View>
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.panelHeading}>
+            <View
+              style={{ flex: 1 }}
+            >
+              <Text
+                style={
+                  styles.panelHeading
+                }
+              >
                 Photo & video evidence
               </Text>
 
-              <Text style={styles.panelSubheading}>
-                Capture geotagged evidence of premises, records
-                and beneficiary facilities.
+              <Text
+                style={
+                  styles.panelSubheading
+                }
+              >
+                Capture geotagged evidence of premises, records and
+                beneficiary facilities.
               </Text>
             </View>
           </View>
 
-          <View style={styles.evidenceButtons}>
+          <View
+            style={
+              styles.evidenceButtons
+            }
+          >
             <SecondaryButton
               label="Add Photo Evidence"
               icon="camera-outline"
-              onPress={() => onAdd('photo')}
-              style={styles.flexButton}
+              onPress={() =>
+                onAdd('photo')
+              }
+              style={
+                styles.flexButton
+              }
             />
 
             <SecondaryButton
               label="Add Video Clip"
               icon="video-outline"
-              onPress={() => onAdd('video')}
-              style={styles.flexButton}
+              onPress={() =>
+                onAdd('video')
+              }
+              style={
+                styles.flexButton
+              }
             />
           </View>
 
-          <View style={styles.galleryHeader}>
-            <Text style={styles.panelHeading}>
-              Evidence Gallery ({evidence.length}/3)
+          <View
+            style={
+              styles.galleryHeader
+            }
+          >
+            <Text
+              style={
+                styles.panelHeading
+              }
+            >
+              Evidence Gallery (
+              {evidence.length}/3)
             </Text>
 
             <StatusBadge
@@ -2719,60 +3834,97 @@ function EvidenceScreen({
             />
           </View>
 
-          {evidence.map((item) => (
-            <View
-              key={item.id}
-              style={styles.evidenceRow}
-            >
-              <ImageThumb
-                source={item.image}
-                style={styles.evidenceImage}
-              />
+          {evidence.map(
+            (item) => (
+              <View
+                key={item.id}
+                style={
+                  styles.evidenceRow
+                }
+              >
+                <ImageThumb
+                  source={item.image}
+                  style={
+                    styles.evidenceImage
+                  }
+                />
 
-              <View style={styles.evidenceCopy}>
-                <View style={styles.evidenceBadges}>
-                  <StatusBadge
-                    label="Geotagged"
-                    tone="info"
-                  />
-                  <StatusBadge
-                    label="Verified"
-                    tone="success"
-                  />
+                <View
+                  style={
+                    styles.evidenceCopy
+                  }
+                >
+                  <View
+                    style={
+                      styles.evidenceBadges
+                    }
+                  >
+                    <StatusBadge
+                      label="Geotagged"
+                      tone="info"
+                    />
+
+                    <StatusBadge
+                      label="Verified"
+                      tone="success"
+                    />
+                  </View>
+
+                  <Text
+                    style={
+                      styles.evidenceTitle
+                    }
+                  >
+                    {item.title}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.evidenceMeta
+                    }
+                  >
+                    <Icon
+                      name="calendar-outline"
+                      size={13}
+                      color={
+                        colors.inkMuted
+                      }
+                    />{' '}
+                    6 Sep 2026, {item.time}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.evidenceMeta
+                    }
+                  >
+                    <Icon
+                      name="map-marker-outline"
+                      size={13}
+                      color={
+                        colors.inkMuted
+                      }
+                    />{' '}
+                    {item.coords}
+                  </Text>
                 </View>
 
-                <Text style={styles.evidenceTitle}>
-                  {item.title}
-                </Text>
-
-                <Text style={styles.evidenceMeta}>
-                  <Icon
-                    name="calendar-outline"
-                    size={13}
-                    color={colors.inkMuted}
-                  />{' '}
-                  6 Sep 2026, {item.time}
-                </Text>
-
-                <Text style={styles.evidenceMeta}>
-                  <Icon
-                    name="map-marker-outline"
-                    size={13}
-                    color={colors.inkMuted}
-                  />{' '}
-                  {item.coords}
-                </Text>
+                <Icon
+                  name="dots-vertical"
+                  color={
+                    colors.inkMuted
+                  }
+                  size={20}
+                />
               </View>
+            ),
+          )}
 
-              <Icon
-                name="dots-vertical"
-                color={colors.inkMuted}
-                size={20}
-              />
-            </View>
-          ))}
-
-          <View style={styles.bottomActions}>
+          <View
+            style={
+              styles.bottomActions
+            }
+          >
             <SecondaryButton
               label="Back"
               icon="arrow-left"
@@ -2783,7 +3935,9 @@ function EvidenceScreen({
               label="Continue to Report"
               icon="arrow-right"
               onPress={onNext}
-              style={styles.flexButton}
+              style={
+                styles.flexButton
+              }
             />
           </View>
         </Surface>
@@ -2827,8 +3981,16 @@ function ReportScreen({
 }) {
   if (submitted) {
     return (
-      <View style={styles.successScreen}>
-        <View style={styles.successCircle}>
+      <View
+        style={
+          styles.successScreen
+        }
+      >
+        <View
+          style={
+            styles.successCircle
+          }
+        >
           <Icon
             name="check"
             color={colors.white}
@@ -2836,13 +3998,21 @@ function ReportScreen({
           />
         </View>
 
-        <Text style={styles.successTitle}>
+        <Text
+          style={
+            styles.successTitle
+          }
+        >
           Inspection submitted successfully
         </Text>
 
-        <Text style={styles.successBody}>
-          Your report for Rukmini Shelter Home for Women has
-          been securely recorded.
+        <Text
+          style={
+            styles.successBody
+          }
+        >
+          Your report for Rukmini Shelter Home for Women has been securely
+          recorded.
         </Text>
 
         <PrimaryButton
@@ -2862,29 +4032,54 @@ function ReportScreen({
         onBack={onBack}
         dark
         right={
-          <View style={styles.secureLabel}>
+          <View
+            style={
+              styles.secureLabel
+            }
+          >
             <Icon
               name="shield-check-outline"
               color={colors.white}
               size={20}
             />
-            <Text style={styles.secureText}>
-              Secure &{'\n'}Verified
+
+            <Text
+              style={
+                styles.secureText
+              }
+            >
+              Secure &{'\n'}
+              Verified
             </Text>
           </View>
         }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
         <InstituteBanner />
+
         <Stepper step={3} />
 
-        <Surface style={styles.reportPanel}>
-          <Text style={styles.panelHeading}>
+        <Surface
+          style={styles.reportPanel}
+        >
+          <Text
+            style={
+              styles.panelHeading
+            }
+          >
             Report summary & submission
           </Text>
 
-          <View style={styles.summaryGrid}>
+          <View
+            style={
+              styles.summaryGrid
+            }
+          >
             {[
               [
                 'GPS location',
@@ -2906,33 +4101,53 @@ function ReportScreen({
                 '7 Sep 2026 · 09:41',
                 'calendar-outline',
               ],
-            ].map(([label, value, icon]) => (
-              <View
-                key={label}
-                style={styles.summaryCell}
-              >
-                <Icon
-                  name={icon as any}
-                  color={colors.teal}
-                  size={18}
-                />
+            ].map(
+              ([label, value, icon]) => (
+                <View
+                  key={label}
+                  style={
+                    styles.summaryCell
+                  }
+                >
+                  <Icon
+                    name={icon as any}
+                    color={colors.teal}
+                    size={18}
+                  />
 
-                <Text style={styles.summaryLabel}>
-                  {label}
-                </Text>
+                  <Text
+                    style={
+                      styles.summaryLabel
+                    }
+                  >
+                    {label}
+                  </Text>
 
-                <Text style={styles.summaryValue}>
-                  {value}
-                </Text>
-              </View>
-            ))}
+                  <Text
+                    style={
+                      styles.summaryValue
+                    }
+                  >
+                    {value}
+                  </Text>
+                </View>
+              ),
+            )}
           </View>
 
-          <Text style={styles.formSectionTitle}>
+          <Text
+            style={
+              styles.formSectionTitle
+            }
+          >
             Overall assessment
           </Text>
 
-          <View style={styles.assessmentRow}>
+          <View
+            style={
+              styles.assessmentRow
+            }
+          >
             {[
               'Satisfactory',
               'Needs improvement',
@@ -2950,14 +4165,16 @@ function ReportScreen({
                 }
                 style={[
                   styles.assessmentButton,
-                  assessment === item &&
+                  assessment ===
+                    item &&
                     styles.assessmentSelected,
                 ]}
               >
                 <View
                   style={[
                     styles.radio,
-                    assessment === item &&
+                    assessment ===
+                      item &&
                       styles.radioSelected,
                   ]}
                 />
@@ -2965,7 +4182,8 @@ function ReportScreen({
                 <Text
                   style={[
                     styles.assessmentText,
-                    assessment === item &&
+                    assessment ===
+                      item &&
                       styles.assessmentTextSelected,
                   ]}
                 >
@@ -2992,7 +4210,10 @@ function ReportScreen({
             icon="send-outline"
             loading={submitting}
             onPress={onSubmit}
-            style={{ marginTop: spacing.lg }}
+            style={{
+              marginTop:
+                spacing.lg,
+            }}
           />
         </Surface>
       </ScrollView>
@@ -3020,16 +4241,26 @@ function AssignmentScreen({
   search: string;
   setSearch: (value: string) => void;
   onBack: () => void;
-  onAssign: (id: string, officer: string) => void;
+  onAssign: (
+    id: string,
+    officer: string,
+  ) => void;
   onViewAll: () => void;
 }) {
-  const filtered = institutes.filter(
-    (item) =>
-      item.name.toLowerCase().includes(search.toLowerCase()) ||
-      item.district
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
+  const filtered =
+    institutes.filter(
+      (item) =>
+        item.name
+          .toLowerCase()
+          .includes(
+            search.toLowerCase(),
+          ) ||
+        item.district
+          .toLowerCase()
+          .includes(
+            search.toLowerCase(),
+          ),
+    );
 
   return (
     <View style={styles.screen}>
@@ -3038,18 +4269,33 @@ function AssignmentScreen({
         subtitle="District-wise inspection workload"
         onBack={onBack}
         right={
-          <View style={styles.headerActions}>
+          <View
+            style={
+              styles.headerActions
+            }
+          >
             <Icon
               name="bell-outline"
               color={colors.ink}
               size={21}
             />
-            <Text style={styles.dateText}>09:41</Text>
+
+            <Text
+              style={
+                styles.dateText
+              }
+            >
+              09:41
+            </Text>
           </View>
         }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
         <SearchBar
           value={search}
           onChangeText={setSearch}
@@ -3083,25 +4329,39 @@ function AssignmentScreen({
           ]}
         />
 
-        <View style={styles.sectionHeading}>
+        <View
+          style={
+            styles.sectionHeading
+          }
+        >
           <View>
-            <Text style={styles.sectionTitle}>
+            <Text
+              style={
+                styles.sectionTitle
+              }
+            >
               Institutes requiring inspection
             </Text>
 
-            <Text style={styles.sectionSubtitle}>
+            <Text
+              style={
+                styles.sectionSubtitle
+              }
+            >
               Assign active field officers
             </Text>
           </View>
         </View>
 
-        {filtered.map((item) => (
-          <AssignmentCard
-            key={item.id}
-            item={item}
-            onAssign={onAssign}
-          />
-        ))}
+        {filtered.map(
+          (item) => (
+            <AssignmentCard
+              key={item.id}
+              item={item}
+              onAssign={onAssign}
+            />
+          ),
+        )}
 
         <SecondaryButton
           label="View all institutes"
@@ -3126,20 +4386,44 @@ function AssignmentCard({
     priority: Risk;
     assignedTo: string;
   };
-  onAssign: (id: string, officer: string) => void;
+  onAssign: (
+    id: string,
+    officer: string,
+  ) => void;
 }) {
-  const [selected, setSelected] = useState(item.assignedTo);
-  const [open, setOpen] = useState(false);
+  const [selected, setSelected] =
+    useState(item.assignedTo);
+
+  const [open, setOpen] =
+    useState(false);
 
   return (
-    <Surface style={styles.assignmentCard}>
-      <View style={styles.assignmentTop}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.assignmentTitle}>
+    <Surface
+      style={
+        styles.assignmentCard
+      }
+    >
+      <View
+        style={
+          styles.assignmentTop
+        }
+      >
+        <View
+          style={{ flex: 1 }}
+        >
+          <Text
+            style={
+              styles.assignmentTitle
+            }
+          >
             {item.name}
           </Text>
 
-          <Text style={styles.assignmentMeta}>
+          <Text
+            style={
+              styles.assignmentMeta
+            }
+          >
             {item.district} · Last inspection{' '}
             {item.lastInspection}
           </Text>
@@ -3148,22 +4432,35 @@ function AssignmentCard({
         <StatusBadge
           label={item.priority}
           tone={
-            item.priority === 'High'
+            item.priority ===
+            'High'
               ? 'critical'
               : 'warning'
           }
         />
       </View>
 
-      <View style={styles.assignmentBottom}>
+      <View
+        style={
+          styles.assignmentBottom
+        }
+      >
         <View>
-          <Text style={styles.riskLabel}>Risk score</Text>
+          <Text
+            style={
+              styles.riskLabel
+            }
+          >
+            Risk score
+          </Text>
+
           <Text
             style={[
               styles.riskValue,
               {
                 color:
-                  item.riskScore > 70
+                  item.riskScore >
+                  70
                     ? colors.red
                     : colors.amber,
               },
@@ -3173,14 +4470,30 @@ function AssignmentCard({
           </Text>
         </View>
 
-        <View style={{ flex: 1 }}>
-          <Text style={styles.riskLabel}>Assign to</Text>
+        <View
+          style={{ flex: 1 }}
+        >
+          <Text
+            style={
+              styles.riskLabel
+            }
+          >
+            Assign to
+          </Text>
 
           <Pressable
-            onPress={() => setOpen(!open)}
-            style={styles.officerSelect}
+            onPress={() =>
+              setOpen(!open)
+            }
+            style={
+              styles.officerSelect
+            }
           >
-            <Text style={styles.officerText}>
+            <Text
+              style={
+                styles.officerText
+              }
+            >
               {selected}
             </Text>
 
@@ -3192,29 +4505,50 @@ function AssignmentCard({
           </Pressable>
 
           {open && (
-            <View style={styles.officerMenu}>
-              {officers.map((officer) => (
-                <Pressable
-                  key={officer}
-                  onPress={() => {
-                    setSelected(officer);
-                    setOpen(false);
-                  }}
-                  style={styles.officerOption}
-                >
-                  <Text style={styles.officerOptionText}>
-                    {officer}
-                  </Text>
-                </Pressable>
-              ))}
+            <View
+              style={
+                styles.officerMenu
+              }
+            >
+              {officers.map(
+                (officer) => (
+                  <Pressable
+                    key={officer}
+                    onPress={() => {
+                      setSelected(
+                        officer,
+                      );
+                      setOpen(false);
+                    }}
+                    style={
+                      styles.officerOption
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.officerOptionText
+                      }
+                    >
+                      {officer}
+                    </Text>
+                  </Pressable>
+                ),
+              )}
             </View>
           )}
         </View>
 
         <PrimaryButton
           label="Assign"
-          onPress={() => onAssign(item.id, selected)}
-          style={styles.assignButton}
+          onPress={() =>
+            onAssign(
+              item.id,
+              selected,
+            )
+          }
+          style={
+            styles.assignButton
+          }
         />
       </View>
     </Surface>
@@ -3242,13 +4576,20 @@ function InstitutesScreen({
   onBack: () => void;
   onInspect: () => void;
 }) {
-  const filtered = institutes.filter(
-    (item) =>
-      item.name.toLowerCase().includes(search.toLowerCase()) ||
-      item.district
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
+  const filtered =
+    institutes.filter(
+      (item) =>
+        item.name
+          .toLowerCase()
+          .includes(
+            search.toLowerCase(),
+          ) ||
+        item.district
+          .toLowerCase()
+          .includes(
+            search.toLowerCase(),
+          ),
+    );
 
   return (
     <View style={styles.screen}>
@@ -3265,69 +4606,471 @@ function InstitutesScreen({
         }
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
         <SearchBar
           value={search}
           onChangeText={setSearch}
           placeholder="Search by institute or district..."
         />
 
-        <View style={styles.instituteCount}>
-          <Text style={styles.sectionTitle}>
-            {filtered.length} institutes
+        <View
+          style={
+            styles.instituteCount
+          }
+        >
+          <Text
+            style={
+              styles.sectionTitle
+            }
+          >
+            {filtered.length}{' '}
+            institutes
           </Text>
 
-          <StatusBadge label="All monitored" />
+          <StatusBadge
+            label="All monitored"
+          />
         </View>
 
-        {filtered.map((item) => (
-          <Pressable
-            key={item.id}
-            onPress={onInspect}
-            style={styles.instituteListCard}
-          >
-            <View style={styles.instituteListIcon}>
+        {filtered.map(
+          (item) => (
+            <Pressable
+              key={item.id}
+              onPress={onInspect}
+              style={
+                styles.instituteListCard
+              }
+            >
+              <View
+                style={
+                  styles.instituteListIcon
+                }
+              >
+                <Icon
+                  name="bank-outline"
+                  color={
+                    colors.teal
+                  }
+                  size={22}
+                />
+              </View>
+
+              <View
+                style={{ flex: 1 }}
+              >
+                <Text
+                  style={
+                    styles.instituteName
+                  }
+                >
+                  {item.name}
+                </Text>
+
+                <Text
+                  style={
+                    styles.instituteMeta
+                  }
+                >
+                  {item.district} ·{' '}
+                  {item.id}
+                </Text>
+
+                <View
+                  style={
+                    styles.instituteStatusRow
+                  }
+                >
+                  <StatusBadge
+                    label={`${item.riskScore} risk score`}
+                    tone={
+                      item.riskScore >
+                      70
+                        ? 'critical'
+                        : 'warning'
+                    }
+                  />
+
+                  <Text
+                    style={
+                      styles.assignedText
+                    }
+                  >
+                    {item.assignedTo ===
+                    'Unassigned'
+                      ? 'Needs officer'
+                      : item.assignedTo}
+                  </Text>
+                </View>
+              </View>
+
               <Icon
-                name="bank-outline"
+                name="chevron-right"
+                color={colors.teal}
+                size={20}
+              />
+            </Pressable>
+          ),
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+function ComplianceScreen({
+  onBack,
+  onStartInspection,
+  onOpenAlerts,
+  onToast,
+}: {
+  onBack: () => void;
+  onStartInspection: () => void;
+  onOpenAlerts: () => void;
+  onToast: (message: string) => void;
+}) {
+  const checks = [
+    {
+      label: 'Staff records',
+      status: 'Compliant',
+      tone: 'success' as const,
+    },
+    {
+      label: 'Beneficiary records',
+      status: 'Compliant',
+      tone: 'success' as const,
+    },
+    {
+      label: 'Safety standards',
+      status: 'Review',
+      tone: 'warning' as const,
+    },
+    {
+      label: 'Fire safety documentation',
+      status: 'Critical',
+      tone: 'critical' as const,
+    },
+  ];
+
+  return (
+    <View style={styles.screen}>
+      <AppHeader
+        title="Compliance"
+        subtitle="Institution compliance overview"
+        onBack={onBack}
+        right={
+          <Icon
+            name="clipboard-check-outline"
+            color={colors.teal}
+            size={29}
+          />
+        }
+      />
+
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
+        <Surface
+          style={
+            styles.complianceHero
+          }
+        >
+          <View
+            style={
+              styles.complianceHeroTop
+            }
+          >
+            <View>
+              <Text
+                style={
+                  styles.complianceEyebrow
+                }
+              >
+                Overall compliance
+              </Text>
+
+              <Text
+                style={
+                  styles.complianceScore
+                }
+              >
+                86%
+              </Text>
+
+              <Text
+                style={
+                  styles.complianceSub
+                }
+              >
+                Across monitored institutions
+              </Text>
+            </View>
+
+            <View
+              style={
+                styles.complianceCircle
+              }
+            >
+              <Text
+                style={
+                  styles.complianceCircleText
+                }
+              >
+                86
+              </Text>
+            </View>
+          </View>
+
+          <View
+            style={
+              styles.progressTrack
+            }
+          >
+            <View
+              style={[
+                styles.progressFill,
+                { width: '86%' },
+              ]}
+            />
+          </View>
+        </Surface>
+
+        <View
+          style={
+            styles.complianceStats
+          }
+        >
+          <Surface
+            style={
+              styles.complianceStatCard
+            }
+          >
+            <Text
+              style={
+                styles.complianceStatValue
+              }
+            >
+              28
+            </Text>
+
+            <Text
+              style={
+                styles.complianceStatLabel
+              }
+            >
+              Verified institutes
+            </Text>
+          </Surface>
+
+          <Surface
+            style={
+              styles.complianceStatCard
+            }
+          >
+            <Text
+              style={
+                styles.complianceStatValue
+              }
+            >
+              5
+            </Text>
+
+            <Text
+              style={
+                styles.complianceStatLabel
+              }
+            >
+              Pending actions
+            </Text>
+          </Surface>
+
+          <Surface
+            style={
+              styles.complianceStatCard
+            }
+          >
+            <Text
+              style={[
+                styles.complianceStatValue,
+                {
+                  color: colors.red,
+                },
+              ]}
+            >
+              2
+            </Text>
+
+            <Text
+              style={
+                styles.complianceStatLabel
+              }
+            >
+              Critical issues
+            </Text>
+          </Surface>
+        </View>
+
+        <Surface
+          style={
+            styles.compliancePanel
+          }
+        >
+          <View
+            style={
+              styles.panelHeader
+            }
+          >
+            <View
+              style={
+                styles.checklistIcon
+              }
+            >
+              <Icon
+                name="clipboard-check-outline"
                 color={colors.teal}
                 size={22}
               />
             </View>
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.instituteName}>
-                {item.name}
+            <View
+              style={{ flex: 1 }}
+            >
+              <Text
+                style={
+                  styles.panelHeading
+                }
+              >
+                Compliance checks
               </Text>
 
-              <Text style={styles.instituteMeta}>
-                {item.district} · {item.id}
+              <Text
+                style={
+                  styles.panelSubheading
+                }
+              >
+                Latest controls requiring officer attention
               </Text>
+            </View>
+          </View>
 
-              <View style={styles.instituteStatusRow}>
+          {checks.map(
+            (check) => (
+              <View
+                key={check.label}
+                style={
+                  styles.complianceRow
+                }
+              >
+                <View
+                  style={[
+                    styles.complianceRowIcon,
+                    check.tone ===
+                      'success'
+                      ? styles.complianceGood
+                      : check.tone ===
+                          'warning'
+                        ? styles.complianceWarn
+                        : styles.complianceCritical,
+                  ]}
+                >
+                  <Icon
+                    name={
+                      check.tone ===
+                      'success'
+                        ? 'check'
+                        : check.tone ===
+                            'warning'
+                          ? 'alert-outline'
+                          : 'alert-circle-outline'
+                    }
+                    color={
+                      check.tone ===
+                      'success'
+                        ? colors.success
+                        : check.tone ===
+                            'warning'
+                          ? colors.amber
+                          : colors.red
+                    }
+                    size={17}
+                  />
+                </View>
+
+                <View
+                  style={{ flex: 1 }}
+                >
+                  <Text
+                    style={
+                      styles.complianceRowTitle
+                    }
+                  >
+                    {check.label}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.complianceRowMeta
+                    }
+                  >
+                    {check.status ===
+                    'Compliant'
+                      ? 'Requirement currently satisfied'
+                      : 'Officer review required'}
+                  </Text>
+                </View>
+
                 <StatusBadge
-                  label={`${item.riskScore} risk score`}
+                  label={
+                    check.status
+                  }
                   tone={
-                    item.riskScore > 70
-                      ? 'critical'
-                      : 'warning'
+                    check.tone
                   }
                 />
-
-                <Text style={styles.assignedText}>
-                  {item.assignedTo === 'Unassigned'
-                    ? 'Needs officer'
-                    : item.assignedTo}
-                </Text>
               </View>
-            </View>
+            ),
+          )}
+        </Surface>
 
-            <Icon
-              name="chevron-right"
-              color={colors.teal}
-              size={20}
-            />
-          </Pressable>
-        ))}
+        <View
+          style={
+            styles.complianceActions
+          }
+        >
+          <SecondaryButton
+            label="Review AI alerts"
+            icon="brain"
+            onPress={onOpenAlerts}
+            style={
+              styles.flexButton
+            }
+          />
+
+          <PrimaryButton
+            label="Start inspection"
+            icon="arrow-right"
+            onPress={
+              onStartInspection
+            }
+            style={
+              styles.flexButton
+            }
+          />
+        </View>
+
+        <SecondaryButton
+          label="Mark review completed"
+          icon="check-circle-outline"
+          onPress={() =>
+            onToast(
+              'Compliance review marked as completed',
+            )
+          }
+        />
       </ScrollView>
     </View>
   );
@@ -3346,7 +5089,11 @@ function NotificationsScreen({
         onBack={onBack}
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+      >
         {[
           [
             'alert-circle-outline',
@@ -3366,51 +5113,69 @@ function NotificationsScreen({
             'Your verification window is open',
             'info',
           ],
-        ].map(([icon, title, meta, tone]) => (
-          <Surface
-            key={title}
-            style={styles.fullNotification}
-          >
-            <View
-              style={[
-                styles.notificationIcon,
-                tone === 'critical'
-                  ? styles.notificationRed
-                  : tone === 'info'
-                    ? styles.notificationBlue
-                    : styles.notificationGreen,
-              ]}
+        ].map(
+          ([icon, title, meta, tone]) => (
+            <Surface
+              key={title}
+              style={
+                styles.fullNotification
+              }
             >
-              <Icon
-                name={icon as any}
-                color={
-                  tone === 'critical'
-                    ? colors.red
+              <View
+                style={[
+                  styles.notificationIcon,
+                  tone ===
+                  'critical'
+                    ? styles.notificationRed
                     : tone === 'info'
-                      ? colors.blue
-                      : colors.success
-                }
+                      ? styles.notificationBlue
+                      : styles.notificationGreen,
+                ]}
+              >
+                <Icon
+                  name={
+                    icon as any
+                  }
+                  color={
+                    tone ===
+                    'critical'
+                      ? colors.red
+                      : tone === 'info'
+                        ? colors.blue
+                        : colors.success
+                  }
+                  size={20}
+                />
+              </View>
+
+              <View
+                style={{ flex: 1 }}
+              >
+                <Text
+                  style={
+                    styles.notificationTitle
+                  }
+                >
+                  {title}
+                </Text>
+
+                <Text
+                  style={
+                    styles.notificationMeta
+                  }
+                >
+                  {meta}
+                </Text>
+              </View>
+
+              <Icon
+                name="chevron-right"
+                color={colors.teal}
                 size={20}
               />
-            </View>
-
-            <View style={{ flex: 1 }}>
-              <Text style={styles.notificationTitle}>
-                {title}
-              </Text>
-
-              <Text style={styles.notificationMeta}>
-                {meta}
-              </Text>
-            </View>
-
-            <Icon
-              name="chevron-right"
-              color={colors.teal}
-              size={20}
-            />
-          </Surface>
-        ))}
+            </Surface>
+          ),
+        )}
       </ScrollView>
     </View>
   );
@@ -4444,31 +6209,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 
-  mapWebFallback: {
-    height: 230,
-    borderRadius: radii.md,
-    backgroundColor: colors.tealSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-  },
-
-  mapFallbackTitle: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: typography.weightBold,
-    marginTop: spacing.md,
-    textAlign: 'center',
-  },
-
-  mapFallbackBody: {
-    color: colors.inkMuted,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: spacing.sm,
-    textAlign: 'center',
-  },
-
   mapLegend: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -4491,6 +6231,19 @@ const styles = StyleSheet.create({
   legendText: {
     color: colors.inkMuted,
     fontSize: 10,
+  },
+
+  failedBar: {
+    backgroundColor: colors.redSoft,
+    borderColor: '#F2C5C5',
+  },
+
+  failedIcon: {
+    backgroundColor: colors.red,
+  },
+
+  failedTitle: {
+    color: colors.red,
   },
 
   verifiedBar: {
@@ -4833,6 +6586,124 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
 
+  complianceHero: {
+    padding: spacing.xl,
+    gap: spacing.lg,
+  },
+
+  complianceHeroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  complianceEyebrow: {
+    color: colors.inkMuted,
+    fontSize: 11,
+  },
+
+  complianceScore: {
+    color: colors.ink,
+    fontSize: 38,
+    fontWeight: typography.weightBold,
+    marginTop: 4,
+  },
+
+  complianceSub: {
+    color: colors.inkMuted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+
+  complianceCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 8,
+    borderColor: colors.mint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  complianceCircleText: {
+    color: colors.teal,
+    fontSize: 19,
+    fontWeight: typography.weightBold,
+  },
+
+  complianceStats: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+
+  complianceStatCard: {
+    flex: 1,
+    padding: spacing.lg,
+  },
+
+  complianceStatValue: {
+    color: colors.teal,
+    fontSize: 22,
+    fontWeight: typography.weightBold,
+  },
+
+  complianceStatLabel: {
+    color: colors.inkMuted,
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 4,
+  },
+
+  compliancePanel: {
+    padding: spacing.lg,
+  },
+
+  complianceRow: {
+    minHeight: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+
+  complianceRowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  complianceGood: {
+    backgroundColor: colors.successSoft,
+  },
+
+  complianceWarn: {
+    backgroundColor: '#FFF2D8',
+  },
+
+  complianceCritical: {
+    backgroundColor: colors.redSoft,
+  },
+
+  complianceRowTitle: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: typography.weightSemibold,
+  },
+
+  complianceRowMeta: {
+    color: colors.inkMuted,
+    fontSize: 9,
+    marginTop: 3,
+  },
+
+  complianceActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+
   fullNotification: {
     padding: spacing.lg,
     flexDirection: 'row',
@@ -4854,7 +6725,8 @@ const styles = StyleSheet.create({
   },
 
   notificationGreen: {
-    backgroundColor: colors.successSoft,
+    backgroundColor:
+      colors.successSoft,
   },
 
   notificationBlue: {
@@ -4886,7 +6758,8 @@ const styles = StyleSheet.create({
     right: spacing.xl,
     minHeight: 46,
     borderRadius: radii.md,
-    backgroundColor: colors.tealDeep,
+    backgroundColor:
+      colors.tealDeep,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -4898,7 +6771,8 @@ const styles = StyleSheet.create({
   toastText: {
     color: colors.white,
     fontSize: 12,
-    fontWeight: typography.weightSemibold,
+    fontWeight:
+      typography.weightSemibold,
   },
 
   errorBox: {
@@ -4940,7 +6814,8 @@ const styles = StyleSheet.create({
   profileName: {
     color: colors.ink,
     fontSize: 16,
-    fontWeight: typography.weightBold,
+    fontWeight:
+      typography.weightBold,
   },
 
   profileMeta: {
@@ -4951,14 +6826,16 @@ const styles = StyleSheet.create({
 
   profileDivider: {
     height: 1,
-    backgroundColor: colors.line,
+    backgroundColor:
+      colors.line,
     marginBottom: spacing.lg,
   },
 
   profileSectionTitle: {
     color: colors.ink,
     fontSize: 12,
-    fontWeight: typography.weightBold,
+    fontWeight:
+      typography.weightBold,
     marginBottom: spacing.sm,
   },
 
@@ -4982,14 +6859,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal:
+      spacing.xl,
   },
 
   logoMark: {
     width: 52,
     height: 52,
     borderRadius: 18,
-    backgroundColor: colors.teal,
+    backgroundColor:
+      colors.teal,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -4997,7 +6876,8 @@ const styles = StyleSheet.create({
   loginBrandTitle: {
     color: colors.ink,
     fontSize: 25,
-    fontWeight: typography.weightBold,
+    fontWeight:
+      typography.weightBold,
   },
 
   loginBrandSub: {
@@ -5010,9 +6890,11 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 31,
     lineHeight: 35,
-    fontWeight: typography.weightBold,
+    fontWeight:
+      typography.weightBold,
     letterSpacing: -0.8,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal:
+      spacing.xl,
     marginTop: 34,
   },
 
@@ -5020,30 +6902,36 @@ const styles = StyleSheet.create({
     color: colors.inkMuted,
     fontSize: 13,
     lineHeight: 19,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal:
+      spacing.xl,
     marginTop: spacing.md,
     maxWidth: 330,
   },
 
   loginStats: {
     flexDirection: 'row',
-    marginHorizontal: spacing.xl,
+    marginHorizontal:
+      spacing.xl,
     marginTop: spacing.xl,
-    paddingVertical: spacing.lg,
+    paddingVertical:
+      spacing.lg,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: colors.line,
+    borderColor:
+      colors.line,
   },
 
   loginStat: {
     flex: 1,
-    paddingRight: spacing.sm,
+    paddingRight:
+      spacing.sm,
   },
 
   loginStatValue: {
     color: colors.teal,
     fontSize: 18,
-    fontWeight: typography.weightBold,
+    fontWeight:
+      typography.weightBold,
   },
 
   loginStatLabel: {
@@ -5062,7 +6950,8 @@ const styles = StyleSheet.create({
   loginTitle: {
     color: colors.ink,
     fontSize: 21,
-    fontWeight: typography.weightBold,
+    fontWeight:
+      typography.weightBold,
   },
 
   loginSubtitle: {
@@ -5074,7 +6963,8 @@ const styles = StyleSheet.create({
   roleLabel: {
     color: colors.ink,
     fontSize: 12,
-    fontWeight: typography.weightSemibold,
+    fontWeight:
+      typography.weightSemibold,
     marginTop: spacing.sm,
   },
 
@@ -5085,23 +6975,28 @@ const styles = StyleSheet.create({
   roleButton: {
     minHeight: 44,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor:
+      colors.line,
     borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal:
+      spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
 
   roleButtonActive: {
-    backgroundColor: colors.teal,
-    borderColor: colors.teal,
+    backgroundColor:
+      colors.teal,
+    borderColor:
+      colors.teal,
   },
 
   roleText: {
     color: colors.ink,
     fontSize: 12,
-    fontWeight: typography.weightSemibold,
+    fontWeight:
+      typography.weightSemibold,
   },
 
   roleTextActive: {
@@ -5133,20 +7028,24 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 5,
     borderWidth: 1.5,
-    borderColor: colors.inkMuted,
+    borderColor:
+      colors.inkMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   checkboxChecked: {
-    backgroundColor: colors.teal,
-    borderColor: colors.teal,
+    backgroundColor:
+      colors.teal,
+    borderColor:
+      colors.teal,
   },
 
   linkText: {
     color: colors.teal,
     fontSize: 11,
-    fontWeight: typography.weightBold,
+    fontWeight:
+      typography.weightBold,
   },
 
   auditNote: {
@@ -5172,7 +7071,8 @@ const styles = StyleSheet.create({
 
   successScreen: {
     flex: 1,
-    backgroundColor: colors.ivory,
+    backgroundColor:
+      colors.ivory,
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
@@ -5183,7 +7083,8 @@ const styles = StyleSheet.create({
     width: 92,
     height: 92,
     borderRadius: 46,
-    backgroundColor: colors.success,
+    backgroundColor:
+      colors.success,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -5191,7 +7092,8 @@ const styles = StyleSheet.create({
   successTitle: {
     color: colors.ink,
     fontSize: 22,
-    fontWeight: typography.weightBold,
+    fontWeight:
+      typography.weightBold,
     textAlign: 'center',
   },
 
