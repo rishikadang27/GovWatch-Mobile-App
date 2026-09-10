@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ImageSourcePropType } from 'react-native';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ImageSourcePropType } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/src/theme/colors';
 import { radii, spacing } from '@/src/theme/spacing';
@@ -77,7 +77,7 @@ export function StatStrip({ items }: { items: { label: string; value: string; ic
 }
 
 export function SimpleModal({ visible, onClose, title, children }: { visible: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
-  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}><View style={styles.modalBackdrop}><View style={styles.modalCard}><View style={styles.modalHeader}><Text style={styles.modalTitle}>{title}</Text><Pressable onPress={onClose}><Icon name="close" color={colors.ink} size={22} /></Pressable></View>{children}</View></View></Modal>;
+  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}><KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><View style={styles.modalCard}><View style={styles.modalHeader}><Text style={styles.modalTitle}>{title}</Text><Pressable onPress={onClose} hitSlop={10}><Icon name="close" color={colors.ink} size={22} /></Pressable></View><ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalContent}>{children}</ScrollView></View></KeyboardAvoidingView></Modal>;
 }
 
 export function Field({ label, value, onChangeText, placeholder, secureTextEntry, right, multiline }: { label?: string; value: string; onChangeText: (value: string) => void; placeholder?: string; secureTextEntry?: boolean; right?: React.ReactNode; multiline?: boolean }) {
@@ -128,6 +128,6 @@ const styles = StyleSheet.create({
   badgeDot: { width: 6, height: 6, borderRadius: 3 }, statusText: { fontSize: 10, fontWeight: typography.weightBold }, textGreen: { color: colors.success }, textAmber: { color: colors.amber }, textRed: { color: colors.red }, textBlue: { color: colors.blue }, textNeutral: { color: colors.inkMuted },
   statStrip: { flexDirection: 'row', paddingVertical: spacing.md, paddingHorizontal: spacing.sm },
   statItem: { flex: 1, alignItems: 'center', gap: 3 }, statIcon: { width: 34, height: 34, backgroundColor: colors.tealWash, borderRadius: 17, alignItems: 'center', justifyContent: 'center' }, statIconAmber: { backgroundColor: colors.amberSoft }, statIconRed: { backgroundColor: colors.redSoft }, statValue: { color: colors.ink, fontSize: 18, fontWeight: typography.weightBold }, statLabel: { color: colors.inkMuted, fontSize: 10, textAlign: 'center' }, statDivider: { width: 1, backgroundColor: colors.line, marginVertical: 5 },
-  modalBackdrop: { flex: 1, backgroundColor: '#073B3A88', justifyContent: 'flex-end' }, modalCard: { backgroundColor: colors.ivory, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: spacing.xl, paddingBottom: 32 }, modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg }, modalTitle: { color: colors.ink, fontSize: 18, fontWeight: typography.weightBold }, bodyText: { color: colors.inkMuted, fontSize: 13, lineHeight: 20 },
+  modalBackdrop: { flex: 1, backgroundColor: '#073B3A88', justifyContent: 'flex-end' }, modalCard: { backgroundColor: colors.ivory, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: spacing.xl, paddingBottom: 32, maxHeight: '82%' }, modalContent: { paddingBottom: spacing.sm }, modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg }, modalTitle: { color: colors.ink, fontSize: 18, fontWeight: typography.weightBold }, bodyText: { color: colors.inkMuted, fontSize: 13, lineHeight: 20 },
   fieldWrap: { gap: spacing.sm }, fieldLabel: { color: colors.ink, fontSize: 12, fontWeight: typography.weightSemibold }, field: { minHeight: 50, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.paper, borderRadius: radii.md, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center' }, fieldInput: { flex: 1, color: colors.ink, fontSize: typography.body }, fieldMultiline: { minHeight: 96, textAlignVertical: 'top', paddingTop: spacing.md }, imageThumb: { width: '100%', height: 160, borderRadius: radii.md },
 });
