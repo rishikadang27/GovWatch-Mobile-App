@@ -14,14 +14,19 @@ import { SymbolView } from 'expo-symbols';
 // Custom brand colors are applied only on the ClassicTabLayout path (older iOS / Android / web).
 function NativeTabLayout() {
   return (
-    <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Icon
-          sf={{ default: 'house', selected: 'house.fill' }}
-        />
-        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
-      </NativeTabs.Trigger>
-    </NativeTabs>
+    <NativeTabs.Trigger name="index">
+    <NativeTabs.Trigger.Icon
+    sf={{ default: 'house', selected: 'house.fill' }}
+    />
+   </NativeTabs.Trigger>
+    // <NativeTabs>
+    //   <NativeTabs.Trigger name="index">
+    //     <NativeTabs.Trigger.Icon
+    //       sf={{ default: 'house', selected: 'house.fill' }}
+    //     />
+    //     <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+    //   </NativeTabs.Trigger>
+    // </NativeTabs>
   );
 }
 
