@@ -1,39 +1,127 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import MapView, { Marker } from 'react-native-maps';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppHeader, BottomNav, Chip, Field, Icon, ImageThumb, PrimaryButton, SearchBar, SecondaryButton, SimpleModal, StatStrip, StatusBadge, Surface } from '@/src/components/GovWatchUI';
-import { alerts, checklistItems, feeds, inspectorImage, officers, type Alert as AlertItem, type Feed, type Risk } from '@/src/data/mock';
+
+import {
+  AppHeader,
+  BottomNav,
+  Chip,
+  Field,
+  Icon,
+  ImageThumb,
+  PrimaryButton,
+  SearchBar,
+  SecondaryButton,
+  SimpleModal,
+  StatStrip,
+  StatusBadge,
+  Surface,
+} from '@/src/components/GovWatchUI';
+
+import {
+  alerts,
+  checklistItems,
+  feeds,
+  inspectorImage,
+  officers,
+  type Alert as AlertItem,
+  type Feed,
+  type Risk,
+} from '@/src/data/mock';
+
 import { GovWatchProvider, useGovWatch } from '@/src/context/GovWatchContext';
 import { colors } from '@/src/theme/colors';
 import { radii, spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
 
-type Screen = 'login' | 'home' | 'alerts' | 'alertDetail' | 'cctv' | 'cctvDetail' | 'video' | 'call' | 'gps' | 'checklist' | 'evidence' | 'report' | 'assignment' | 'institutes' | 'notifications';
+type Screen =
+  | 'login'
+  | 'home'
+  | 'alerts'
+  | 'alertDetail'
+  | 'cctv'
+  | 'cctvDetail'
+  | 'video'
+  | 'call'
+  | 'gps'
+  | 'checklist'
+  | 'evidence'
+  | 'report'
+  | 'assignment'
+  | 'institutes'
+  | 'notifications';
+
 type NavTab = 'home' | 'inspect' | 'cctv' | 'institutes';
+
+const REGISTERED_LATITUDE = 28.6139;
+const REGISTERED_LONGITUDE = 77.2090;
 
 function GovWatchApp() {
   const insets = useSafeAreaInsets();
-  const { isSignedIn, setSignedIn, keepSignedIn, setKeepSignedIn, checklist, toggleChecklist, evidence, addEvidence, assignedInstitutes, assignInstitute, submitted, setSubmitted } = useGovWatch();
+
+  const {
+    isSignedIn,
+    setSignedIn,
+    keepSignedIn,
+    setKeepSignedIn,
+    checklist,
+    toggleChecklist,
+    evidence,
+    addEvidence,
+    assignedInstitutes,
+    assignInstitute,
+    submitted,
+    setSubmitted,
+  } = useGovWatch();
 
   const [screen, setScreen] = useState<Screen>(isSignedIn ? 'home' : 'login');
   const [previousScreen, setPreviousScreen] = useState<Screen>('home');
+
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
+
   const [forgotOpen, setForgotOpen] = useState(false);
   const [recoveryId, setRecoveryId] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'District Officer' | 'Field Inspector' | 'Ministry Admin'>('Field Inspector');
+
+  const [selectedRole, setSelectedRole] = useState<
+    'District Officer' | 'Field Inspector' | 'Ministry Admin'
+  >('Field Inspector');
+
   const [search, setSearch] = useState('');
   const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(null);
   const [selectedFeed, setSelectedFeed] = useState<Feed | null>(null);
   const [toast, setToast] = useState('');
-  const [callState, setCallState] = useState<'idle' | 'connecting' | 'connected' | 'ended'>('idle');
+
+  const [callState, setCallState] = useState<
+    'idle' | 'connecting' | 'connected' | 'ended'
+  >('idle');
+
   const [gpsState, setGpsState] = useState<'checking' | 'verified'>('checking');
-  const [assessment, setAssessment] = useState<'Satisfactory' | 'Needs improvement' | 'Critical issues found'>('Satisfactory');
+
+  const [currentLocation, setCurrentLocation] =
+    useState<Location.LocationObjectCoords | null>(null);
+
+  const [assessment, setAssessment] = useState<
+    'Satisfactory' | 'Needs improvement' | 'Critical issues found'
+  >('Satisfactory');
+
   const [remarks, setRemarks] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -42,15 +130,24 @@ function GovWatchApp() {
   useEffect(() => {
     if (screen === 'gps') {
       setGpsState('checking');
+      setCurrentLocation(null);
+
       let mounted = true;
 
       const verify = async () => {
         try {
           if (Platform.OS !== 'web') {
-            const permission = await Location.requestForegroundPermissionsAsync();
+            const permission =
+              await Location.requestForegroundPermissionsAsync();
 
             if (permission.status === 'granted') {
-              await Location.getCurrentPositionAsync({});
+              const location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.High,
+              });
+
+              if (mounted) {
+                setCurrentLocation(location.coords);
+              }
             }
           }
         } catch {
@@ -58,7 +155,9 @@ function GovWatchApp() {
         }
 
         setTimeout(() => {
-          if (mounted) setGpsState('verified');
+          if (mounted) {
+            setGpsState('verified');
+          }
         }, 900);
       };
 
@@ -91,26 +190,50 @@ function GovWatchApp() {
       ? 'cctv'
       : screen === 'institutes' || screen === 'assignment'
         ? 'institutes'
-        : screen === 'gps' || screen === 'checklist' || screen === 'evidence' || screen === 'report' || screen === 'video' || screen === 'call'
+        : screen === 'gps' ||
+            screen === 'checklist' ||
+            screen === 'evidence' ||
+            screen === 'report' ||
+            screen === 'video' ||
+            screen === 'call'
           ? 'inspect'
           : 'home';
 
-  const bottomTabs = ['home', 'cctv', 'institutes', 'assignment', 'gps', 'checklist', 'evidence', 'report', 'video', 'call'].includes(screen);
+  const bottomTabs = [
+    'home',
+    'cctv',
+    'institutes',
+    'assignment',
+    'gps',
+    'checklist',
+    'evidence',
+    'report',
+    'video',
+    'call',
+  ].includes(screen);
 
-  const goBack = () => setScreen(previousScreen === screen ? 'home' : previousScreen);
+  const goBack = () =>
+    setScreen(previousScreen === screen ? 'home' : previousScreen);
 
   const handleLogin = () => {
     if (selectedRole !== 'Field Inspector') {
-      setLoginError(`${selectedRole} sign-in is not yet enabled in this demo build. Please continue as Field Inspector.`);
+      setLoginError(
+        `${selectedRole} sign-in is not yet enabled in this demo build. Please continue as Field Inspector.`,
+      );
       return;
     }
 
-    if (loginId.trim().toUpperCase() === 'MSJE-DI-20456' && password === 'demo123') {
+    if (
+      loginId.trim().toUpperCase() === 'MSJE-DI-20456' &&
+      password === 'demo123'
+    ) {
       setLoginError('');
       setSignedIn(true);
       setScreen('home');
     } else {
-      setLoginError('That official ID or password is not recognised. Try the demo credentials shown below.');
+      setLoginError(
+        'That official ID or password is not recognised. Try the demo credentials shown below.',
+      );
     }
   };
 
@@ -143,7 +266,9 @@ function GovWatchApp() {
         onRequestRecovery={() => {
           setForgotOpen(false);
           setRecoveryId('');
-          showToast('Recovery request sent to your registered department email');
+          showToast(
+            'Recovery request sent to your registered department email',
+          );
         }}
         selectedRole={selectedRole}
         setSelectedRole={setSelectedRole}
@@ -206,7 +331,12 @@ function GovWatchApp() {
         );
 
       case 'cctvDetail':
-        return <CCTVDetailScreen feed={selectedFeed ?? feeds[0]} onBack={goBack} />;
+        return (
+          <CCTVDetailScreen
+            feed={selectedFeed ?? feeds[0]}
+            onBack={goBack}
+          />
+        );
 
       case 'video':
         return (
@@ -221,15 +351,22 @@ function GovWatchApp() {
         );
 
       case 'call':
-        return <CallScreen state={callState} setState={setCallState} onBack={() => setScreen('video')} />;
+        return (
+          <CallScreen
+            state={callState}
+            setState={setCallState}
+            onBack={() => setScreen('video')}
+          />
+        );
 
       case 'gps':
         return (
           <GpsScreen
             gpsState={gpsState}
+            currentLocation={currentLocation}
             onBack={goBack}
             onNext={() => navigate('checklist')}
-            onMap={() => showToast('Map view opened with mock location')}
+            onMap={() => showToast('Map is centered on your GPS location')}
           />
         );
 
@@ -259,18 +396,26 @@ function GovWatchApp() {
                   });
 
                   if (!result.canceled && result.assets[0]) {
+                    const evidenceCoords = currentLocation
+                      ? `${currentLocation.latitude.toFixed(4)}° N, ${currentLocation.longitude.toFixed(4)}° E`
+                      : '28.6141° N, 77.2088° E';
+
                     addEvidence({
                       id: `upload-${Date.now()}`,
                       title: 'New photo evidence',
                       image: { uri: result.assets[0].uri },
                       time: 'Now',
-                      coords: '28.6141° N, 77.2088° E',
+                      coords: evidenceCoords,
                     });
                   } else {
-                    showToast('Demo gallery kept the existing evidence ready');
+                    showToast(
+                      'Demo gallery kept the existing evidence ready',
+                    );
                   }
                 } catch {
-                  showToast('Demo evidence added — device picker unavailable');
+                  showToast(
+                    'Demo evidence added — device picker unavailable',
+                  );
                 }
               } else {
                 showToast('Video capture ready in the native build');
@@ -343,16 +488,24 @@ function GovWatchApp() {
     <View style={styles.appShell}>
       <View style={{ flex: 1 }}>{renderScreen()}</View>
 
-      {bottomTabs && <BottomNav active={activeTab} onNavigate={handleNav} />}
+      {bottomTabs && (
+        <BottomNav active={activeTab} onNavigate={handleNav} />
+      )}
 
       {Boolean(toast) && (
         <View
           style={[
             styles.toast,
-            { bottom: bottomTabs ? 100 : 30 + insets.bottom },
+            {
+              bottom: bottomTabs ? 100 : 30 + insets.bottom,
+            },
           ]}
         >
-          <Icon name="check-circle-outline" color={colors.white} size={18} />
+          <Icon
+            name="check-circle-outline"
+            color={colors.white}
+            size={18}
+          />
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       )}
@@ -364,14 +517,20 @@ function GovWatchApp() {
       >
         <View style={styles.notificationRow}>
           <View style={styles.notificationIcon}>
-            <Icon name="alert-circle-outline" color={colors.red} size={20} />
+            <Icon
+              name="alert-circle-outline"
+              color={colors.red}
+              size={20}
+            />
           </View>
 
           <View style={{ flex: 1 }}>
             <Text style={styles.notificationTitle}>
               2 critical AI alerts need review
             </Text>
-            <Text style={styles.notificationMeta}>Updated 8 minutes ago</Text>
+            <Text style={styles.notificationMeta}>
+              Updated 8 minutes ago
+            </Text>
           </View>
         </View>
 
@@ -392,7 +551,10 @@ function GovWatchApp() {
       >
         <View style={styles.profileHeader}>
           <View style={styles.profileAvatarLarge}>
-            <Image source={inspectorImage} style={styles.profileAvatarImage} />
+            <Image
+              source={inspectorImage}
+              style={styles.profileAvatarImage}
+            />
           </View>
 
           <View style={{ flex: 1 }}>
@@ -408,8 +570,8 @@ function GovWatchApp() {
         <Text style={styles.profileSectionTitle}>Session</Text>
 
         <Text style={styles.profileBody}>
-          You are signed in as a Field Inspector. Sign out here to return to
-          the secure login screen.
+          You are signed in as a Field Inspector. Sign out here to return
+          to the secure login screen.
         </Text>
 
         <SecondaryButton
@@ -467,7 +629,7 @@ function LoginScreen({
     | 'Field Inspector'
     | 'Ministry Admin';
   setSelectedRole: (
-    value: 'District Officer' | 'Field Inspector' | 'Ministry Admin'
+    value: 'District Officer' | 'Field Inspector' | 'Ministry Admin',
   ) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -674,8 +836,8 @@ function LoginScreen({
               size={18}
             />
             <Text style={styles.auditText}>
-              Protected by Ministry security controls. Your activity is logged
-              for audit.
+              Protected by Ministry security controls. Your activity is
+              logged for audit.
             </Text>
           </View>
         </Surface>
@@ -732,18 +894,15 @@ function HomeScreen({
     .filter(
       (item) =>
         item.title.toLowerCase().includes(search.toLowerCase()) ||
-        item.institute.toLowerCase().includes(search.toLowerCase())
+        item.institute.toLowerCase().includes(search.toLowerCase()),
     )
     .filter(
       (item) =>
         filter === 'All' ||
-        (filter === 'Compliance'
-          ? item.severity !== 'Medium'
-          : filter === 'Video Verification'
-            ? item.title.includes('headcount')
-            : filter === 'Live CCTV'
-              ? item.title.includes('CCTV')
-              : true)
+        (filter === 'Compliance' ? item.severity !== 'Medium' : true) ||
+        (filter === 'Video Verification' &&
+          item.title.includes('headcount')) ||
+        (filter === 'Live CCTV' && item.title.includes('CCTV')),
     );
 
   return (
@@ -752,7 +911,10 @@ function HomeScreen({
         title=""
         right={
           <View style={styles.headerActions}>
-            <Pressable onPress={onNotify} style={styles.headerIcon}>
+            <Pressable
+              onPress={onNotify}
+              style={styles.headerIcon}
+            >
               <Icon
                 name="bell-outline"
                 color={colors.ink}
@@ -875,9 +1037,7 @@ function HomeScreen({
         {filteredAlerts.slice(0, 3).map((item) => (
           <Pressable
             key={item.id}
-            onPress={() => {
-              onNavigate('alertDetail');
-            }}
+            onPress={() => onNavigate('alertDetail')}
             style={styles.alertPreview}
           >
             <ImageThumb
@@ -994,10 +1154,7 @@ function HomeScreen({
             </View>
 
             <View style={{ flex: 1 }}>
-              <Text style={styles.recentTitle}>
-                {name}
-              </Text>
-
+              <Text style={styles.recentTitle}>{name}</Text>
               <Text style={styles.recentMeta}>
                 {index === 0
                   ? 'Completed · 5 Sep 2026'
@@ -1006,16 +1163,8 @@ function HomeScreen({
             </View>
 
             <StatusBadge
-              label={
-                index === 0
-                  ? 'Verified'
-                  : 'Due soon'
-              }
-              tone={
-                index === 0
-                  ? 'success'
-                  : 'warning'
-              }
+              label={index === 0 ? 'Verified' : 'Due soon'}
+              tone={index === 0 ? 'success' : 'warning'}
             />
           </Pressable>
         ))}
@@ -1043,14 +1192,11 @@ function AlertsScreen({
 
   const filtered = alerts.filter(
     (item) =>
-      (filter === 'All' ||
-        item.severity === filter) &&
-      (item.title
-        .toLowerCase()
-        .includes(search.toLowerCase()) ||
+      (filter === 'All' || item.severity === filter) &&
+      (item.title.toLowerCase().includes(search.toLowerCase()) ||
         item.institute
           .toLowerCase()
-          .includes(search.toLowerCase()))
+          .includes(search.toLowerCase())),
   );
 
   return (
@@ -1068,10 +1214,7 @@ function AlertsScreen({
         }
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <SearchBar
           value={search}
           onChangeText={setSearch}
@@ -1108,7 +1251,7 @@ function AlertsScreen({
                   setFilter(item as typeof filter)
                 }
               />
-            )
+            ),
           )}
         </ScrollView>
 
@@ -1126,7 +1269,6 @@ function AlertsScreen({
               <Text style={styles.aiSummaryTitle}>
                 AI Anomaly Detection
               </Text>
-
               <Text style={styles.aiSummarySubtitle}>
                 Real-time analysis across all active cameras
               </Text>
@@ -1191,7 +1333,6 @@ function AlertsScreen({
                         : 'info'
                   }
                 />
-
                 <Text style={styles.alertTime}>
                   {item.time}
                 </Text>
@@ -1254,7 +1395,7 @@ function AlertsScreen({
                   icon="phone-outline"
                   onPress={() =>
                     onToast(
-                      'Verification call queued for the institute'
+                      'Verification call queued for the institute',
                     )
                   }
                   style={styles.smallButton}
@@ -1265,7 +1406,7 @@ function AlertsScreen({
                   icon="arrow-up-bold-outline"
                   onPress={() =>
                     onToast(
-                      'Inspection flow created from this alert'
+                      'Inspection flow created from this alert',
                     )
                   }
                   style={styles.smallPrimary}
@@ -1298,9 +1439,7 @@ function AlertDetailScreen({
         onBack={onBack}
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <ImageThumb
           source={item.image}
           style={styles.detailImage}
@@ -1395,14 +1534,11 @@ function CCTVScreen({
 
   const filtered = feeds.filter(
     (item) =>
-      (filter === 'All Feeds' ||
-        item.status === filter) &&
-      (item.name
-        .toLowerCase()
-        .includes(search.toLowerCase()) ||
+      (filter === 'All Feeds' || item.status === filter) &&
+      (item.name.toLowerCase().includes(search.toLowerCase()) ||
         item.institute
           .toLowerCase()
-          .includes(search.toLowerCase()))
+          .includes(search.toLowerCase())),
   );
 
   return (
@@ -1420,9 +1556,7 @@ function CCTVScreen({
         }
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <SearchBar
           value={search}
           onChangeText={setSearch}
@@ -1437,27 +1571,24 @@ function CCTVScreen({
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chipRow}
         >
-          {[
-            'All Feeds',
-            'Live',
-            'Offline',
-            'AI Flagged',
-          ].map((item) => (
-            <Chip
-              key={item}
-              label={`${item} (${
-                item === 'All Feeds'
-                  ? 18
-                  : item === 'Live'
-                    ? 15
-                    : item === 'Offline'
-                      ? 3
-                      : 4
-              })`}
-              selected={filter === item}
-              onPress={() => setFilter(item)}
-            />
-          ))}
+          {['All Feeds', 'Live', 'Offline', 'AI Flagged'].map(
+            (item) => (
+              <Chip
+                key={item}
+                label={`${item} (${
+                  item === 'All Feeds'
+                    ? 18
+                    : item === 'Live'
+                      ? 15
+                      : item === 'Offline'
+                        ? 3
+                        : 4
+                })`}
+                selected={filter === item}
+                onPress={() => setFilter(item)}
+              />
+            ),
+          )}
         </ScrollView>
 
         <View style={styles.cctvGrid}>
@@ -1546,7 +1677,7 @@ function CCTVScreen({
                 <Pressable
                   onPress={() =>
                     onToast(
-                      `${item.name} camera is operational`
+                      `${item.name} camera is operational`,
                     )
                   }
                 >
@@ -1601,9 +1732,7 @@ function CCTVDetailScreen({
         right={<StatusBadge label="Live" />}
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.cctvHero}>
           <Image
             source={feed.image}
@@ -1702,7 +1831,6 @@ function VideoVerificationScreen({
               color={colors.white}
               size={20}
             />
-
             <Text style={styles.secureText}>
               Secure &{'\n'}Verified
             </Text>
@@ -1710,16 +1838,11 @@ function VideoVerificationScreen({
         }
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <Surface dark style={styles.videoCard}>
           <View style={styles.videoCardTop}>
             <StatusBadge label="Random" tone="info" />
-
-            <Text style={styles.timerPill}>
-              ◷ 04:58
-            </Text>
+            <Text style={styles.timerPill}>◷ 04:58</Text>
           </View>
 
           <Text style={styles.videoTitle}>
@@ -1727,8 +1850,8 @@ function VideoVerificationScreen({
           </Text>
 
           <Text style={styles.videoSubtitle}>
-            Unscheduled call to verify real-time presence of
-            staff and beneficiaries.
+            Unscheduled call to verify real-time presence of staff and
+            beneficiaries.
           </Text>
 
           <View style={styles.inspectorCircle}>
@@ -1738,9 +1861,7 @@ function VideoVerificationScreen({
             />
           </View>
 
-          <Text style={styles.inspectorName}>
-            Inspector
-          </Text>
+          <Text style={styles.inspectorName}>Inspector</Text>
 
           <PrimaryButton
             label="Initiate Random Video Call"
@@ -1806,10 +1927,8 @@ function VideoVerificationScreen({
               onPress={() =>
                 setChecked((current) =>
                   current.map((value, itemIndex) =>
-                    itemIndex === index
-                      ? !value
-                      : value
-                  )
+                    itemIndex === index ? !value : value,
+                  ),
                 )
               }
               style={styles.checkRow}
@@ -1845,9 +1964,7 @@ function VideoVerificationScreen({
         </Surface>
 
         <Pressable
-          onPress={() =>
-            onToast('Notes panel opened')
-          }
+          onPress={() => onToast('Notes panel opened')}
           style={styles.notesBar}
         >
           <Icon
@@ -1855,11 +1972,7 @@ function VideoVerificationScreen({
             color={colors.teal}
             size={22}
           />
-
-          <Text style={styles.notesText}>
-            Add Notes
-          </Text>
-
+          <Text style={styles.notesText}>Add Notes</Text>
           <Icon
             name="chevron-right"
             color={colors.teal}
@@ -1876,17 +1989,9 @@ function CallScreen({
   setState,
   onBack,
 }: {
-  state:
-    | 'idle'
-    | 'connecting'
-    | 'connected'
-    | 'ended';
+  state: 'idle' | 'connecting' | 'connected' | 'ended';
   setState: (
-    value:
-      | 'idle'
-      | 'connecting'
-      | 'connected'
-      | 'ended'
+    value: 'idle' | 'connecting' | 'connected' | 'ended',
   ) => void;
   onBack: () => void;
 }) {
@@ -1894,7 +1999,7 @@ function CallScreen({
     if (state === 'connecting') {
       const timer = setTimeout(
         () => setState('connected'),
-        1500
+        1500,
       );
 
       return () => clearTimeout(timer);
@@ -1926,9 +2031,7 @@ function CallScreen({
 
       <View style={styles.callCenter}>
         <View style={styles.callAvatar}>
-          <Text style={styles.callInitials}>
-            AK
-          </Text>
+          <Text style={styles.callInitials}>AK</Text>
         </View>
 
         <Text style={styles.callTitle}>
@@ -1998,7 +2101,7 @@ function CallScreen({
               setState(
                 state === 'connected'
                   ? 'ended'
-                  : 'connecting'
+                  : 'connecting',
               )
             }
             style={[
@@ -2091,15 +2194,23 @@ function Stepper({ step }: { step: number }) {
 
 function GpsScreen({
   gpsState,
+  currentLocation,
   onBack,
   onNext,
   onMap,
 }: {
   gpsState: 'checking' | 'verified';
+  currentLocation: Location.LocationObjectCoords | null;
   onBack: () => void;
   onNext: () => void;
   onMap: () => void;
 }) {
+  const currentLatitude =
+    currentLocation?.latitude ?? 28.6141;
+
+  const currentLongitude =
+    currentLocation?.longitude ?? 77.2088;
+
   return (
     <View style={styles.screen}>
       <AppHeader
@@ -2114,7 +2225,6 @@ function GpsScreen({
               color={colors.white}
               size={20}
             />
-
             <Text style={styles.secureText}>
               Secure &{'\n'}Verified
             </Text>
@@ -2122,10 +2232,9 @@ function GpsScreen({
         }
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <Stepper step={0} />
+
         <InstituteBanner />
 
         <Surface style={styles.gpsPanel}>
@@ -2143,9 +2252,7 @@ function GpsScreen({
                 GPS Verification
               </Text>
 
-              <Text
-                style={styles.panelSubheading}
-              >
+              <Text style={styles.panelSubheading}>
                 Confirm you are physically present at the
                 registered institute address before proceeding.
               </Text>
@@ -2181,42 +2288,111 @@ function GpsScreen({
               </Text>
 
               <Text style={styles.locationValue}>
-                28.6141° N, 77.2088° E
+                {currentLatitude.toFixed(4)}° N,{' '}
+                {currentLongitude.toFixed(4)}° E
               </Text>
 
               <Text style={styles.locationMuted}>
-                Accuracy: ±6m · Captured via device GPS
+                {currentLocation
+                  ? `Accuracy: ±${Math.round(
+                      currentLocation.accuracy ?? 6,
+                    )}m · Captured via device GPS`
+                  : 'Waiting for device GPS...'}
               </Text>
             </View>
           </View>
 
-          <View style={styles.mapMock}>
-            <View style={styles.mapGrid}>
-              {Array.from({ length: 18 }).map(
-                (_, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.mapBlock,
-                      {
-                        left: `${(i % 6) * 18}%`,
-                        top: `${Math.floor(i / 6) * 31}%`,
-                      },
-                    ]}
-                  />
-                )
-              )}
-            </View>
-
-            <View style={styles.mapPin}>
+          {Platform.OS === 'web' ? (
+            <View style={styles.mapWebFallback}>
               <Icon
-                name="map-marker"
-                color={colors.white}
-                size={22}
+                name="map-outline"
+                color={colors.teal}
+                size={34}
               />
+
+              <Text style={styles.mapFallbackTitle}>
+                Live map available on iOS & Android
+              </Text>
+
+              <Text style={styles.mapFallbackBody}>
+                Open this app in Expo Go on your phone or tablet
+                to use the device map and GPS marker.
+              </Text>
+            </View>
+          ) : (
+            <MapView
+              style={styles.realMap}
+              initialRegion={{
+                latitude: REGISTERED_LATITUDE,
+                longitude: REGISTERED_LONGITUDE,
+                latitudeDelta: 0.0045,
+                longitudeDelta: 0.0045,
+              }}
+              region={
+                currentLocation
+                  ? {
+                      latitude: currentLatitude,
+                      longitude: currentLongitude,
+                      latitudeDelta: 0.0045,
+                      longitudeDelta: 0.0045,
+                    }
+                  : undefined
+              }
+              showsUserLocation={Boolean(currentLocation)}
+              showsMyLocationButton={true}
+              loadingEnabled={true}
+              mapType="standard"
+            >
+              <Marker
+                coordinate={{
+                  latitude: REGISTERED_LATITUDE,
+                  longitude: REGISTERED_LONGITUDE,
+                }}
+                title="Registered Institute"
+                description="Rukmini Shelter Home for Women"
+                pinColor={colors.teal}
+              />
+
+              {currentLocation && (
+                <Marker
+                  coordinate={{
+                    latitude: currentLatitude,
+                    longitude: currentLongitude,
+                  }}
+                  title="Your current location"
+                  description="Captured from device GPS"
+                  pinColor={colors.red}
+                />
+              )}
+            </MapView>
+          )}
+
+          <View style={styles.mapLegend}>
+            <View style={styles.legendItem}>
+              <View
+                style={[
+                  styles.legendDot,
+                  { backgroundColor: colors.teal },
+                ]}
+              />
+
+              <Text style={styles.legendText}>
+                Registered institute
+              </Text>
             </View>
 
-            <View style={styles.mapPulse} />
+            <View style={styles.legendItem}>
+              <View
+                style={[
+                  styles.legendDot,
+                  { backgroundColor: colors.red },
+                ]}
+              />
+
+              <Text style={styles.legendText}>
+                Your current GPS location
+              </Text>
+            </View>
           </View>
 
           <View style={styles.verifiedBar}>
@@ -2228,21 +2404,21 @@ function GpsScreen({
                     : 'check'
                 }
                 color={colors.white}
-                size={18}
+                size={22}
               />
             </View>
 
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.verifiedTitle}>
                 {gpsState === 'checking'
                   ? 'Checking GPS…'
-                  : 'Location verified'}
+                  : 'Location verified successfully'}
               </Text>
 
               <Text style={styles.verifiedBody}>
                 {gpsState === 'checking'
                   ? 'Confirming your device location'
-                  : 'You are within 12m of the registered institute address · 4:25:09 pm'}
+                  : 'Within 12m of the registered institute address.  •  Recorded at 4:25:09 PM'}
               </Text>
             </View>
           </View>
@@ -2342,7 +2518,6 @@ function ChecklistScreen({
               color={colors.white}
               size={20}
             />
-
             <Text style={styles.secureText}>
               Secure &{'\n'}Verified
             </Text>
@@ -2350,9 +2525,7 @@ function ChecklistScreen({
         }
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <InstituteBanner />
         <Stepper step={1} />
 
@@ -2445,7 +2618,7 @@ function ChecklistScreen({
               completed > 0
                 ? onNext()
                 : onToast(
-                    'Complete at least one checklist item to continue'
+                    'Complete at least one checklist item to continue',
                   )
             }
             style={styles.flexButton}
@@ -2487,7 +2660,6 @@ function EvidenceScreen({
               color={colors.white}
               size={20}
             />
-
             <Text style={styles.secureText}>
               Secure &{'\n'}Verified
             </Text>
@@ -2495,9 +2667,7 @@ function EvidenceScreen({
         }
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <InstituteBanner />
         <Stepper step={2} />
 
@@ -2545,11 +2715,7 @@ function EvidenceScreen({
             </Text>
 
             <StatusBadge
-              label={`${
-                evidence.length >= 3
-                  ? '3 of 3'
-                  : evidence.length
-              } required`}
+              label={`${evidence.length >= 3 ? '3 of 3' : evidence.length} required`}
             />
           </View>
 
@@ -2649,7 +2815,7 @@ function ReportScreen({
     value:
       | 'Satisfactory'
       | 'Needs improvement'
-      | 'Critical issues found'
+      | 'Critical issues found',
   ) => void;
   remarks: string;
   setRemarks: (value: string) => void;
@@ -2702,7 +2868,6 @@ function ReportScreen({
               color={colors.white}
               size={20}
             />
-
             <Text style={styles.secureText}>
               Secure &{'\n'}Verified
             </Text>
@@ -2710,9 +2875,7 @@ function ReportScreen({
         }
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <InstituteBanner />
         <Stepper step={3} />
 
@@ -2782,7 +2945,7 @@ function ReportScreen({
                     item as
                       | 'Satisfactory'
                       | 'Needs improvement'
-                      | 'Critical issues found'
+                      | 'Critical issues found',
                   )
                 }
                 style={[
@@ -2862,12 +3025,10 @@ function AssignmentScreen({
 }) {
   const filtered = institutes.filter(
     (item) =>
-      item.name
-        .toLowerCase()
-        .includes(search.toLowerCase()) ||
+      item.name.toLowerCase().includes(search.toLowerCase()) ||
       item.district
         .toLowerCase()
-        .includes(search.toLowerCase())
+        .includes(search.toLowerCase()),
   );
 
   return (
@@ -2883,16 +3044,12 @@ function AssignmentScreen({
               color={colors.ink}
               size={21}
             />
-            <Text style={styles.dateText}>
-              09:41
-            </Text>
+            <Text style={styles.dateText}>09:41</Text>
           </View>
         }
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <SearchBar
           value={search}
           onChangeText={setSearch}
@@ -2971,10 +3128,7 @@ function AssignmentCard({
   };
   onAssign: (id: string, officer: string) => void;
 }) {
-  const [selected, setSelected] = useState(
-    item.assignedTo
-  );
-
+  const [selected, setSelected] = useState(item.assignedTo);
   const [open, setOpen] = useState(false);
 
   return (
@@ -3003,10 +3157,7 @@ function AssignmentCard({
 
       <View style={styles.assignmentBottom}>
         <View>
-          <Text style={styles.riskLabel}>
-            Risk score
-          </Text>
-
+          <Text style={styles.riskLabel}>Risk score</Text>
           <Text
             style={[
               styles.riskValue,
@@ -3023,9 +3174,7 @@ function AssignmentCard({
         </View>
 
         <View style={{ flex: 1 }}>
-          <Text style={styles.riskLabel}>
-            Assign to
-          </Text>
+          <Text style={styles.riskLabel}>Assign to</Text>
 
           <Pressable
             onPress={() => setOpen(!open)}
@@ -3053,9 +3202,7 @@ function AssignmentCard({
                   }}
                   style={styles.officerOption}
                 >
-                  <Text
-                    style={styles.officerOptionText}
-                  >
+                  <Text style={styles.officerOptionText}>
                     {officer}
                   </Text>
                 </Pressable>
@@ -3066,9 +3213,7 @@ function AssignmentCard({
 
         <PrimaryButton
           label="Assign"
-          onPress={() =>
-            onAssign(item.id, selected)
-          }
+          onPress={() => onAssign(item.id, selected)}
           style={styles.assignButton}
         />
       </View>
@@ -3099,12 +3244,10 @@ function InstitutesScreen({
 }) {
   const filtered = institutes.filter(
     (item) =>
-      item.name
-        .toLowerCase()
-        .includes(search.toLowerCase()) ||
+      item.name.toLowerCase().includes(search.toLowerCase()) ||
       item.district
         .toLowerCase()
-        .includes(search.toLowerCase())
+        .includes(search.toLowerCase()),
   );
 
   return (
@@ -3122,9 +3265,7 @@ function InstitutesScreen({
         }
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <SearchBar
           value={search}
           onChangeText={setSearch}
@@ -3205,9 +3346,7 @@ function NotificationsScreen({
         onBack={onBack}
       />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         {[
           [
             'alert-circle-outline',
@@ -3256,15 +3395,11 @@ function NotificationsScreen({
             </View>
 
             <View style={{ flex: 1 }}>
-              <Text
-                style={styles.notificationTitle}
-              >
+              <Text style={styles.notificationTitle}>
                 {title}
               </Text>
 
-              <Text
-                style={styles.notificationMeta}
-              >
+              <Text style={styles.notificationMeta}>
                 {meta}
               </Text>
             </View>
@@ -3842,7 +3977,7 @@ const styles = StyleSheet.create({
   },
 
   videoOverlay: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: '#073B3A55',
     alignItems: 'center',
     justifyContent: 'center',
@@ -4302,82 +4437,94 @@ const styles = StyleSheet.create({
     lineHeight: 13,
   },
 
-  mapMock: {
-    height: 160,
+  realMap: {
+    height: 230,
+    width: '100%',
     borderRadius: radii.md,
     overflow: 'hidden',
-    backgroundColor: '#D8EAE2',
-    position: 'relative',
   },
 
-  mapGrid: {
-    ...StyleSheet.absoluteFill,
-  },
-
-  mapBlock: {
-    position: 'absolute',
-    width: 60,
-    height: 32,
-    borderWidth: 1,
-    borderColor: '#B4D3CA',
-    backgroundColor: '#E6F2E7',
-    transform: [{ rotate: '20deg' }],
-  },
-
-  mapPin: {
-    position: 'absolute',
-    left: '48%',
-    top: '40%',
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.teal,
+  mapWebFallback: {
+    height: 230,
+    borderRadius: radii.md,
+    backgroundColor: colors.tealSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: colors.white,
+    paddingHorizontal: spacing.xl,
   },
 
-  mapPulse: {
-    position: 'absolute',
-    left: '38%',
-    top: '25%',
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#56B8DF33',
-    borderWidth: 1,
-    borderColor: '#56B8DF88',
+  mapFallbackTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: typography.weightBold,
+    marginTop: spacing.md,
+    textAlign: 'center',
+  },
+
+  mapFallbackBody: {
+    color: colors.inkMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+
+  mapLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.lg,
+    alignItems: 'center',
+  },
+
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+
+  legendText: {
+    color: colors.inkMuted,
+    fontSize: 10,
   },
 
   verifiedBar: {
     backgroundColor: colors.successSoft,
     borderRadius: radii.md,
-    padding: spacing.md,
+    padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    borderWidth: 1,
+    borderColor: '#BFE6D7',
   },
 
   verifiedIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: colors.success,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
 
   verifiedTitle: {
     color: colors.success,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: typography.weightBold,
   },
 
   verifiedBody: {
-    color: colors.inkMuted,
-    fontSize: 10,
-    marginTop: 2,
+    color: colors.teal,
+    fontSize: 11,
+    marginTop: 5,
+    lineHeight: 16,
   },
 
   proceedPanel: {
@@ -4691,13 +4838,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-  },
-
-  notificationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.lg,
   },
 
   notificationIcon: {
