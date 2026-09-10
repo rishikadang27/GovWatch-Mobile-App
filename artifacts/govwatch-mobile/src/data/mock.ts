@@ -1,6 +1,9 @@
 import hallImage from '../../assets/images/shelter-hall.jpg';
 import dormitoryImage from '../../assets/images/dormitory.jpg';
 import entranceImage from '../../assets/images/entrance.jpg';
+import inspectorImage from '../../assets/images/inspector-portrait.jpg';
+
+export { inspectorImage };
 
 export type Risk = 'High' | 'Medium' | 'Low';
 export type AlertSeverity = 'Critical' | 'High' | 'Medium';
