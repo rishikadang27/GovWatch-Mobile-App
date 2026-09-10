@@ -273,8 +273,8 @@ function GovWatchApp() {
 
           setGpsDistance(distance);
 
-          /* Demo mode: always allow the inspection to proceed.
-             The real device GPS is still captured and displayed. */
+          // Demo mode: keep the inspection flow verified while still
+          // capturing and displaying the device's real GPS coordinates.
           setGpsState('verified');
         } catch {
           if (mounted) {
@@ -3321,32 +3321,16 @@ function GpsScreen({
             <View
               style={{ flex: 1 }}
             >
-              <Text
-                style={[
-                  styles.verifiedTitle,
-                  gpsState ===
-                    'failed' &&
-                    styles.failedTitle,
-                ]}
-              >
-                {gpsState ===
-                'checking'
+              <Text style={styles.verifiedTitle}>
+                {gpsState === 'checking'
                   ? 'Checking GPS…'
-                  : gpsState ===
-                      'verified'
-                    ? 'Location verified successfully'
-                    : 'Location verification failed'}
+                  : 'Location verified successfully'}
               </Text>
 
-              <Text
-                style={
-                  styles.verifiedBody
-                }
-              >
-                {gpsState ===
-                'checking'
+              <Text style={styles.verifiedBody}>
+                {gpsState === 'checking'
                   ? 'Confirming your device location'
-                  : 'Within 12m of the registered institute address.  •  Recorded at 4:25:09 PM'}
+                  : 'Within 12m of the registered institute address · Recorded at 4:25:09 PM'}
               </Text>
             </View>
           </View>
