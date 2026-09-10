@@ -229,7 +229,9 @@ function GovWatchApp() {
 
   useEffect(() => {
     if (screen === 'gps') {
-      setGpsState('checking');
+      // Demo mode: always allow the inspection workflow to continue.
+      // Real device GPS is still captured when available.
+      setGpsState('verified');
       setCurrentLocation(null);
       setGpsDistance(null);
 
@@ -238,9 +240,6 @@ function GovWatchApp() {
       const verify = async () => {
         try {
           if (Platform.OS === 'web') {
-            if (mounted) {
-              setGpsState('failed');
-            }
             return;
           }
 
@@ -248,9 +247,7 @@ function GovWatchApp() {
             await Location.requestForegroundPermissionsAsync();
 
           if (permission.status !== 'granted') {
-            if (mounted) {
-              setGpsState('failed');
-            }
+            // Keep demo verification successful even without permission.
             return;
           }
 
@@ -273,12 +270,12 @@ function GovWatchApp() {
 
           setGpsDistance(distance);
 
-          // Demo mode: keep the inspection flow verified while still
-          // capturing and displaying the device's real GPS coordinates.
+          // Always verified in demo mode; distance does not block progress.
           setGpsState('verified');
         } catch {
+          // GPS failure must never block the demo inspection flow.
           if (mounted) {
-            setGpsState('failed');
+            setGpsState('verified');
           }
         }
       };
@@ -3197,49 +3194,88 @@ function GpsScreen({
             </View>
           </View>
 
-          <MapView
-            key={
-              currentLocation
-                ? `${currentLatitude}-${currentLongitude}`
-                : 'registered'
-            }
-            style={styles.realMap}
-            initialRegion={
-              mapRegion
-            }
-            showsUserLocation={Boolean(
-              currentLocation,
-            )}
-            showsMyLocationButton
-            loadingEnabled
-            mapType="standard"
-          >
-            <Marker
-              coordinate={{
-                latitude:
-                  REGISTERED_LATITUDE,
-                longitude:
-                  REGISTERED_LONGITUDE,
-              }}
-              title="Registered Institute"
-              description="Rukmini Shelter Home for Women"
-              pinColor={colors.teal}
-            />
+          {Platform.OS === 'android' ? (
+            <View
+              style={styles.androidLocationCard}
+            >
+              <View
+                style={styles.androidLocationIcon}
+              >
+                <Icon
+                  name="map-marker-radius-outline"
+                  color={colors.teal}
+                  size={30}
+                />
+              </View>
 
-            {currentLocation && (
+              <Text
+                style={styles.androidLocationTitle}
+              >
+                Institute location
+              </Text>
+
+              <Text
+                style={styles.androidLocationText}
+              >
+                Registered location
+                {'\n'}
+                28.6139° N, 77.2090° E
+              </Text>
+
+              {currentLocation && (
+                <Text
+                  style={styles.androidLocationCurrent}
+                >
+                  Current GPS: {currentLatitude.toFixed(4)}° N,{' '}
+                  {currentLongitude.toFixed(4)}° E
+                </Text>
+              )}
+
+              <Text
+                style={styles.androidLocationHint}
+              >
+                GPS coordinates are captured from your device when available.
+              </Text>
+            </View>
+          ) : (
+            <MapView
+              key={
+                currentLocation
+                  ? `${currentLatitude}-${currentLongitude}`
+                  : 'registered'
+              }
+              style={styles.realMap}
+              initialRegion={mapRegion}
+              showsUserLocation={Boolean(
+                currentLocation,
+              )}
+              showsMyLocationButton
+              loadingEnabled
+              mapType="standard"
+            >
               <Marker
                 coordinate={{
-                  latitude:
-                    currentLatitude,
-                  longitude:
-                    currentLongitude,
+                  latitude: REGISTERED_LATITUDE,
+                  longitude: REGISTERED_LONGITUDE,
                 }}
-                title="Your current GPS location"
-                description="Captured from device GPS"
-                pinColor={colors.red}
+                title="Registered Institute"
+                description="Rukmini Shelter Home for Women"
+                pinColor={colors.teal}
               />
-            )}
-          </MapView>
+
+              {currentLocation && (
+                <Marker
+                  coordinate={{
+                    latitude: currentLatitude,
+                    longitude: currentLongitude,
+                  }}
+                  title="Your current GPS location"
+                  description="Captured from device GPS"
+                  pinColor={colors.red}
+                />
+              )}
+            </MapView>
+          )}
 
           <View
             style={styles.mapLegend}
@@ -3290,29 +3326,13 @@ function GpsScreen({
           </View>
 
           <View
-            style={[
-              styles.verifiedBar,
-              gpsState === 'failed' &&
-                styles.failedBar,
-            ]}
+            style={styles.verifiedBar}
           >
             <View
-              style={[
-                styles.verifiedIcon,
-                gpsState === 'failed' &&
-                  styles.failedIcon,
-              ]}
+              style={styles.verifiedIcon}
             >
               <Icon
-                name={
-                  gpsState ===
-                  'checking'
-                    ? 'crosshairs-gps'
-                    : gpsState ===
-                        'verified'
-                      ? 'check'
-                      : 'alert-circle-outline'
-                }
+                name="check"
                 color={colors.white}
                 size={22}
               />
@@ -3322,15 +3342,11 @@ function GpsScreen({
               style={{ flex: 1 }}
             >
               <Text style={styles.verifiedTitle}>
-                {gpsState === 'checking'
-                  ? 'Checking GPS…'
-                  : 'Location verified successfully'}
+                Location verified successfully
               </Text>
 
               <Text style={styles.verifiedBody}>
-                {gpsState === 'checking'
-                  ? 'Confirming your device location'
-                  : 'Within 12m of the registered institute address · Recorded at 4:25:09 PM'}
+                Demo verification enabled · Real GPS coordinates captured when available
               </Text>
             </View>
           </View>
@@ -3378,10 +3394,7 @@ function GpsScreen({
             label="Go to Checklist"
             icon="arrow-right"
             onPress={onNext}
-            disabled={
-              gpsState !==
-              'verified'
-            }
+            disabled={false}
             style={
               styles.proceedButton
             }
@@ -6177,6 +6190,58 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: radii.md,
     overflow: 'hidden',
+  },
+
+  androidLocationCard: {
+    height: 230,
+    width: '100%',
+    borderRadius: radii.md,
+    backgroundColor: '#F3F8F7',
+    borderWidth: 1,
+    borderColor: '#D8E8E5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+
+  androidLocationIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#DDF3EE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+
+  androidLocationTitle: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: typography.weightBold,
+    textAlign: 'center',
+  },
+
+  androidLocationText: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 6,
+  },
+
+  androidLocationCurrent: {
+    color: colors.teal,
+    fontSize: 11,
+    fontWeight: typography.weightSemibold,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+
+  androidLocationHint: {
+    color: colors.inkMuted,
+    fontSize: 9,
+    textAlign: 'center',
+    marginTop: 8,
   },
 
   mapLegend: {
